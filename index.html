@@ -163,6 +163,7 @@ tr.kat td{font-weight:700;background:var(--green-soft)}
       <button class="btn" data-view="abrechnung" aria-pressed="false">Abendabrechnung</button>
       <button class="btn" data-view="konten" aria-pressed="false">Angeschrieben</button>
       <button class="btn" data-view="preise" aria-pressed="false">Preise</button>
+      <button class="btn" id="sperrBtn" hidden>Sperren</button>
     </nav>
   </header>
   <div id="modeHint" hidden class="pill warn" style="margin-bottom:12px"></div>
@@ -198,9 +199,9 @@ function datumDE(z){return z.slice(8,10)+"."+z.slice(5,7)+"."+z.slice(0,4)}
 /* ---------- Zustand (liegt nur auf diesem Tablet) ---------- */
 const LS="sv-kasse-v2";
 const S={view:"kasse",kat:"Alkoholfrei",name:null,modus:"deckel",gegeben:"",altMit:true,pinOk:false,armed:null,
-  preise:{},pin:"0000",druck:{breite:80,auto:false},
+  preise:{},pin:"0000",kassenpw:null,offen:false,druck:{breite:80,auto:false},
   stand:null,deckel:{},abrechnungen:[],personen:[],konten:{},kontoLog:[],abende:[],exportiert:null};
-const KEYS=["preise","pin","druck","stand","deckel","abrechnungen","personen","konten","kontoLog","abende","exportiert"];
+const KEYS=["kassenpw","preise","pin","druck","stand","deckel","abrechnungen","personen","konten","kontoLog","abende","exportiert"];
 function save(){try{const o={};KEYS.forEach(k=>o[k]=S[k]);localStorage.setItem(LS,JSON.stringify(o))}catch(e){toast("Speichern auf dem Tablet fehlgeschlagen!")}}
 function load(){try{const o=JSON.parse(localStorage.getItem(LS))||{};KEYS.forEach(k=>{if(o[k]!=null)S[k]=o[k]})}catch(e){}}
 const preis=id=>(S.preise[id]!=null?S.preise[id]:BYID[id].p);
@@ -265,8 +266,28 @@ function auswertung(list){
   return {art,kat,pers,verzehr:r2(verzehr),bar:r2(bar),an:r2(an),alt:r2(alt)};
 }
 
+async function hash(t){
+  const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("sv-oberschopfheim|"+t));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
+function istGesperrt(){return !!S.kassenpw&&!S.offen}
+function renderSperre(v){
+  document.querySelector(".nav").hidden=true;
+  v.innerHTML=`<section class="panel start" style="text-align:center"><img src="logo.png" alt="" style="height:110px;width:auto">
+   <h2 style="font-size:1.8rem;margin-top:10px">Kasse gesperrt</h2><p class="hint">Bitte das Kassen-Passwort eingeben.</p>
+   <form id="lockForm" class="row" style="justify-content:center"><label class="field" style="max-width:260px"><span class="label">Passwort</span>
+   <input id="lockPw" type="password" autocomplete="current-password" autofocus></label><button class="btn primary" type="submit">Entsperren</button></form>
+   <p class="hint" id="lockErr" hidden>Das Passwort stimmt nicht.</p></section>`;
+  $("#lockForm").onsubmit=async e=>{e.preventDefault();
+    if(await hash($("#lockPw").value)===S.kassenpw){S.offen=true;try{sessionStorage.setItem("sv-offen","1")}catch(x){}render()}
+    else{$("#lockErr").hidden=false;$("#lockPw").value=""}};
+}
 /* ---------- Anzeige ---------- */
 function render(){
+  const v0=$("#view"); $("#sperrBtn").hidden=!S.kassenpw||istGesperrt();
+  $("#abendPill").hidden=istGesperrt();
+  if(istGesperrt()) return renderSperre(v0);
+  document.querySelector(".nav").hidden=false;
   document.querySelectorAll(".nav .btn").forEach(b=>b.setAttribute("aria-pressed",b.dataset.view===S.view));
   const pill=$("#abendPill");
   if(S.stand){const o=offeneDeckel().reduce((s,n)=>s+deckelSumme(n),0);pill.className="pill num";pill.textContent=`Abend ${S.stand.datumText} · ${offeneDeckel().length} offene Deckel · ${euro(o)}`}
@@ -405,6 +426,11 @@ function renderPreise(v){
    ${KATS.map(k=>`<div class="label" style="margin-top:14px">${k}</div><div class="preisgrid">${ARTIKEL.filter(a=>a.k===k).map(a=>`<label><span>${esc(a.n)} <small class="hint">${esc(a.m)}</small></span><input class="num" data-preis="${a.id}" inputmode="decimal" value="${preis(a.id).toFixed(2).replace(".",",")}"></label>`).join("")}</div>`).join("")}
    <div class="panel row" style="margin-top:16px"><label class="field"><span class="label">Neue PIN (leer lassen = unverändert)</span><input id="newPin" inputmode="numeric" autocomplete="off"></label>
    <button class="btn primary" id="savePreise">Preise speichern</button><button class="btn" id="sperren">Sperren</button></div>
+   <div class="panel" style="margin-top:16px"><div class="label">Kassen-Passwort</div>
+   <p class="hint">${S.kassenpw?"Die Kasse ist geschützt. Beim Öffnen wird das Passwort abgefragt.":"Zurzeit ohne Passwort. Jeder, der das Tablet in der Hand hat, kann buchen."}</p>
+   <div class="row"><label class="field"><span class="label">Neues Passwort (mind. 4 Zeichen)</span><input id="kpw1" type="password" autocomplete="new-password"></label>
+   <label class="field"><span class="label">Wiederholen</span><input id="kpw2" type="password" autocomplete="new-password"></label>
+   <button class="btn primary" id="kpwSet">Passwort setzen</button>${S.kassenpw?`<button class="btn ${S.armed==="pwweg"?"danger":""}" id="kpwOff">${S.armed==="pwweg"?"Wirklich entfernen?":"Passwort entfernen"}</button>`:""}</div></div>
    <div class="panel" style="margin-top:16px"><div class="label">Kassenzettel</div>
    <div class="row"><label class="field"><span class="label">Papierbreite</span>
    <span class="nav"><button class="btn" data-breite="58" aria-pressed="${S.druck.breite===58}">58 mm</button><button class="btn" data-breite="80" aria-pressed="${S.druck.breite===80}">80 mm</button></span></label>
@@ -419,6 +445,10 @@ function renderPreise(v){
     const np=$("#newPin").value.trim(); if(np) S.pin=np; save(); toast("Gespeichert");
   };
   $("#sperren").onclick=()=>{S.pinOk=false;S.view="kasse";render()};
+  $("#kpwSet").onclick=async()=>{const a=$("#kpw1").value,b=$("#kpw2").value;
+    if(a.length<4){toast("Bitte mindestens 4 Zeichen.");return} if(a!==b){toast("Die beiden Eingaben sind verschieden.");return}
+    S.kassenpw=await hash(a);S.offen=true;try{sessionStorage.setItem("sv-offen","1")}catch(x){}save();toast("Kassen-Passwort gesetzt");render()};
+  const ko=$("#kpwOff"); if(ko) ko.onclick=()=>{if(S.armed!=="pwweg"){S.armed="pwweg";render();return}S.armed=null;S.kassenpw=null;save();toast("Passwort entfernt");render()};
   v.querySelectorAll("[data-breite]").forEach(x=>x.onclick=()=>{S.druck.breite=+x.dataset.breite;save();render()});
   $("#autoDruck").onclick=()=>{S.druck.auto=!S.druck.auto;save();render()};
   $("#backup").onclick=()=>{const o={version:2};KEYS.forEach(k=>o[k]=S[k]);datei("Kasse-Sicherung-"+jetzt().slice(0,10)+".json",JSON.stringify(o,null,1));toast("Sicherung in Downloads gespeichert")};
@@ -489,7 +519,8 @@ function exportExcel(abend){
 
 let tt; function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2600)}
 document.querySelectorAll(".nav .btn").forEach(b=>b.onclick=()=>{S.view=b.dataset.view;S.armed=null;render()});
-load(); try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+$("#sperrBtn").onclick=()=>{S.offen=false;S.pinOk=false;S.name=null;try{sessionStorage.removeItem("sv-offen")}catch(x){}render()};
+load(); try{S.offen=sessionStorage.getItem("sv-offen")==="1"}catch(x){} try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 render();
 if("serviceWorker" in navigator&&location.protocol!=="file:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}
 </script>
