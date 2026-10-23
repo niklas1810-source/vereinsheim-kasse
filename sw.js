@@ -1,5 +1,5 @@
 // Offline-Speicher der Kasse. Bei jeder Änderung an den Dateien VERSION hochzählen.
-const VERSION = "kasse-v2";
+const VERSION = "kasse-v3";
 const FILES = ["./", "index.html", "manifest.webmanifest", "xlsx.full.min.js",
   "barlow-latin-400-normal.woff2", "barlow-latin-500-normal.woff2", "barlow-latin-600-normal.woff2",
   "barlow-condensed-latin-600-normal.woff2", "barlow-condensed-latin-700-normal.woff2",

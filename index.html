@@ -123,6 +123,17 @@ tr.kat td{font-weight:700;background:var(--green-soft)}
 .preisgrid label{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}
 .preisgrid input{width:84px;border:1px solid var(--line);border-radius:8px;padding:6px;text-align:right;background:var(--surface)}
 .hint{color:var(--muted);font-size:.9rem}
+.name{display:inline-flex;flex-direction:column;align-items:flex-start;line-height:1.15;text-align:left}
+.name small{font-size:.78rem;opacity:.8;font-variant-numeric:tabular-nums}
+.name.offen{border-color:var(--gold);border-width:2px}
+.name .schuld{color:var(--warn);font-weight:600}
+.name[aria-pressed="true"] .schuld{color:var(--green-fg)}
+.alt{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 10px;font-weight:600;margin-top:8px}
+.toggle{display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:600}
+.toggle input{width:22px;height:22px;accent-color:var(--green)}
+.zwei{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.78rem;font-weight:600;background:var(--green-soft)}
+.tag.an{background:var(--warn-soft);color:var(--warn)}
 #bondruck{display:none}
 @media print{
   :root{padding:0!important} body{background:#fff!important;padding:0!important;margin:0}
@@ -145,11 +156,12 @@ tr.kat td{font-weight:700;background:var(--green-soft)}
 <body>
 <div id="app">
   <header class="top">
-    <div class="brand"><img class="logo" src="logo.png" alt="Wappen Schützenverein Oberschopfheim"><div><h1>Schützenverein Oberschopfheim</h1><small>Vereinsheim-Kasse · Barzahlung</small></div></div>
+    <div class="brand"><img class="logo" src="logo.png" alt="Wappen Schützenverein Oberschopfheim"><div><h1>Schützenverein Oberschopfheim</h1><small>Vereinsheim-Kasse · Deckel</small></div></div>
     <span class="pill num" id="abendPill">Kasse wird geladen …</span>
     <nav class="nav" aria-label="Bereiche">
       <button class="btn" data-view="kasse" aria-pressed="true">Kasse</button>
       <button class="btn" data-view="abrechnung" aria-pressed="false">Abendabrechnung</button>
+      <button class="btn" data-view="konten" aria-pressed="false">Angeschrieben</button>
       <button class="btn" data-view="preise" aria-pressed="false">Preise</button>
     </nav>
   </header>
@@ -175,278 +187,311 @@ const ARTIKEL = [
 ].map(([id,k,n,m,p])=>({id,k,n,m,p}));
 const KATS=["Alkoholfrei","Bier","Wein & Sekt","Spirituosen","Speisen"];
 const BYID=Object.fromEntries(ARTIKEL.map(a=>[a.id,a]));
-const euro=v=>(Math.round(v*100)/100).toLocaleString("de-DE",{style:"currency",currency:"EUR"});
 const r2=v=>Math.round(v*100)/100;
+const euro=v=>r2(v).toLocaleString("de-DE",{style:"currency",currency:"EUR"});
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const $=s=>document.querySelector(s);
+function parseNum(s){if(s==null)return null;s=String(s).trim().replace(/€/g,"").replace(/\s/g,"");if(!s)return null;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");const n=Number(s);return isFinite(n)?r2(n):null}
+function jetzt(){const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,19)}
+function datumDE(z){return z.slice(8,10)+"."+z.slice(5,7)+"."+z.slice(0,4)}
 
-const S={druck:{breite:80,auto:false},view:"kasse",kat:"Alkoholfrei",name:null,bon:{},gegeben:"",preise:{},pin:"0000",pinOk:false,
-  stand:null,buchungen:[],personen:[],abende:[],stornoArm:false,abschlussArm:false,ist:"",db:null,dl:null,ready:false};
+/* ---------- Zustand (liegt nur auf diesem Tablet) ---------- */
+const LS="sv-kasse-v2";
+const S={view:"kasse",kat:"Alkoholfrei",name:null,modus:"deckel",gegeben:"",altMit:true,pinOk:false,armed:null,
+  preise:{},pin:"0000",druck:{breite:80,auto:false},
+  stand:null,deckel:{},abrechnungen:[],personen:[],konten:{},kontoLog:[],abende:[],exportiert:null};
+const KEYS=["preise","pin","druck","stand","deckel","abrechnungen","personen","konten","kontoLog","abende","exportiert"];
+function save(){try{const o={};KEYS.forEach(k=>o[k]=S[k]);localStorage.setItem(LS,JSON.stringify(o))}catch(e){toast("Speichern auf dem Tablet fehlgeschlagen!")}}
+function load(){try{const o=JSON.parse(localStorage.getItem(LS))||{};KEYS.forEach(k=>{if(o[k]!=null)S[k]=o[k]})}catch(e){}}
 const preis=id=>(S.preise[id]!=null?S.preise[id]:BYID[id].p);
+const konto=n=>r2(S.konten[n]||0);
 
-/* ---------- Speicher: Artefakt-Datenbank, sonst lokal im Browser ---------- */
-const LS="sv-kasse-v1";
-function lsLoad(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return {}}}
-function lsSave(){try{localStorage.setItem(LS,JSON.stringify({stand:S.stand,buchungen:S.buchungen,personen:S.personen,preise:S.preise,pin:S.pin,abende:S.abende,exportiert:S.exportiert,druck:S.druck}))}catch(e){toast("Speichern auf dem Tablet fehlgeschlagen!")}}
-let unsubB=null;
-async function init(){
-  S.dl={save:async({filename,data})=>{
-    const blob=new Blob([data],{type:filename.endsWith(".json")?"application/json":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
-    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();
-    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);}};
-  const l=lsLoad(); Object.assign(S,{stand:l.stand||null,buchungen:l.buchungen||[],personen:l.personen||[],preise:l.preise||{},pin:l.pin||"0000",abende:l.abende||[],exportiert:l.exportiert||null,druck:l.druck||{breite:80,auto:false}});
-  try{if(navigator.storage&&navigator.storage.persist) await navigator.storage.persist()}catch(e){}
-  S.ready=true; render();
+function abendSicher(){
+  if(S.stand) return;
+  const z=jetzt(); S.stand={id:z.replace(/[-:T]/g,"").slice(0,12),datumText:datumDE(z),start:z};
 }
-let subAbend=null;
-function subBuchungen(){
-  const id=S.stand?S.stand.id:null; if(id===subAbend) return; subAbend=id;
-  if(unsubB){unsubB();unsubB=null} S.buchungen=[];
-  if(!id) return;
-  unsubB=S.db.collection("buchungen").where("abend","==",id).onSnapshot(q=>{
-    S.buchungen=q.docs.map(d=>Object.assign({_id:d.id},d.data())).sort((a,b)=>a.zeit<b.zeit?-1:1); render()},err);
-}
-function err(e){toast("Speichern/Laden fehlgeschlagen: "+(e&&e.message||e&&e.code||"unbekannter Fehler"))}
+const deckelSumme=n=>r2(Object.values(S.deckel[n]||{}).reduce((s,p)=>s+p.menge*p.preis,0));
+const offeneDeckel=()=>Object.keys(S.deckel).filter(n=>deckelSumme(n)>0);
 
-async function addBuchung(b){
-  if(S.db){const ref=await S.db.collection("buchungen").add(b); return ref}
-  b._id="l"+Date.now(); S.buchungen.push(b); lsSave(); render();
+/* ---------- Aktionen ---------- */
+function addArtikel(id){
+  if(!S.name){toast("Bitte zuerst einen Gast wählen.");return}
+  abendSicher();
+  const d=S.deckel[S.name]||(S.deckel[S.name]={});
+  const p=d[id]||(d[id]={menge:0,preis:preis(id)});
+  p.menge++; S.armed=null; save(); render();
 }
-async function setStorno(b){
-  if(S.db){await S.db.collection("buchungen").doc(b._id).update({storniert:true}); return}
-  b.storniert=true; lsSave(); render();
+function minusArtikel(id){
+  const d=S.deckel[S.name]; if(!d||!d[id]) return;
+  d[id].menge--; if(d[id].menge<=0) delete d[id];
+  if(!Object.keys(d).length) delete S.deckel[S.name];
+  save(); render();
 }
-async function addPerson(n){
-  if(S.personen.includes(n)) return;
-  if(S.db){await S.db.collection("personen").doc(n.toLowerCase().replace(/[^a-z0-9äöüß]+/g,"-").slice(0,60)||("p"+Date.now())).set({name:n}); return}
-  S.personen.push(n); S.personen.sort((a,b)=>a.localeCompare(b,"de")); lsSave();
+function addPerson(n){if(!S.personen.includes(n)){S.personen.push(n);S.personen.sort((a,b)=>a.localeCompare(b,"de"))}}
+function abrechnen(art){
+  const n=S.name; abendSicher();
+  const posten=Object.entries(S.deckel[n]||{}).map(([id,p])=>({id,artikel:BYID[id].n,kategorie:BYID[id].k,menge:p.menge,preis:p.preis}));
+  const verzehr=deckelSumme(n), vorher=konto(n);
+  const alt=art==="bar"&&S.altMit&&vorher>0?vorher:0;
+  const zahlt=r2(verzehr+alt), geg=parseNum(S.gegeben);
+  const a={id:"a"+Date.now(),abend:S.stand.id,zeit:jetzt(),name:n,posten,verzehr,art,alt,
+    gegeben:art==="bar"&&geg!=null&&geg>=zahlt?geg:null,kontoVorher:vorher};
+  if(art==="anschreiben"){S.konten[n]=r2(vorher+verzehr);S.kontoLog.push({ref:a.id,zeit:a.zeit,abend:a.abend,name:n,art:"angeschrieben",betrag:verzehr})}
+  if(alt>0){S.konten[n]=r2(vorher-alt);S.kontoLog.push({ref:a.id,zeit:a.zeit,abend:a.abend,name:n,art:"beglichen",betrag:alt})}
+  if(Math.abs(konto(n))<0.005) delete S.konten[n];
+  a.kontoNachher=konto(n);
+  S.abrechnungen.push(a); delete S.deckel[n]; S.name=null;
+  S.modus="deckel"; S.gegeben=""; S.altMit=true; save();
+  toast(art==="bar"?`${n}: ${euro(zahlt)} bar bezahlt`:`${n}: ${euro(verzehr)} angeschrieben`);
+  render(); if(S.druck.auto) druckeBon(a);
 }
-async function setStand(st){
-  if(S.db){await S.db.doc("kasse/stand").set(st); return}
-  S.stand=st.offen?st:null; if(!st.offen) S.buchungen=[]; lsSave(); render();
-}
-async function savePreise(){
-  if(S.db){await S.db.doc("kasse/preise").set({preise:S.preise,pin:S.pin}); return}
-  lsSave();
-}
-async function addAbend(a){
-  if(S.db){await S.db.collection("abende").doc(a.id).set(a); return}
-  S.abende.push(a); lsSave();
+function rueckgaengig(){
+  const a=S.abrechnungen.pop(); if(!a) return;
+  S.konten[a.name]=a.kontoVorher; if(!a.kontoVorher) delete S.konten[a.name];
+  S.kontoLog=S.kontoLog.filter(l=>l.ref!==a.id);
+  const d=S.deckel[a.name]||(S.deckel[a.name]={});
+  a.posten.forEach(p=>{const x=d[p.id]||(d[p.id]={menge:0,preis:p.preis});x.menge+=p.menge});
+  if(!Object.keys(d).length) delete S.deckel[a.name];
+  S.name=a.name; save(); toast("Abrechnung von "+a.name+" zurückgenommen, Deckel wieder offen"); render();
 }
 
-/* ---------- Rechnen ---------- */
-const aktiv=()=>S.buchungen.filter(b=>!b.storniert);
-const bonSumme=()=>r2(Object.entries(S.bon).reduce((s,[id,m])=>s+m*preis(id),0));
-const umsatz=()=>r2(aktiv().reduce((s,b)=>s+b.summe,0));
-function auswertung(){
-  const art={},pers={},kat={};
-  aktiv().forEach(b=>{pers[b.name]=r2((pers[b.name]||0)+b.summe);
-    b.posten.forEach(p=>{const a=art[p.id]||(art[p.id]={n:p.artikel,k:p.kategorie,menge:0,betrag:0});a.menge+=p.menge;a.betrag=r2(a.betrag+p.menge*p.preis);kat[p.kategorie]=r2((kat[p.kategorie]||0)+p.menge*p.preis)})});
-  return {art,pers,kat};
+/* ---------- Auswertung ---------- */
+function auswertung(list){
+  list=list||S.abrechnungen;
+  const art={},kat={},pers={}; let verzehr=0,bar=0,an=0,alt=0;
+  list.forEach(a=>{verzehr+=a.verzehr;alt+=a.alt;if(a.art==="bar")bar+=a.verzehr+a.alt;else an+=a.verzehr;
+    const p=pers[a.name]||(pers[a.name]={verzehr:0,bar:0,an:0});p.verzehr+=a.verzehr;if(a.art==="bar")p.bar+=a.verzehr+a.alt;else p.an+=a.verzehr;
+    a.posten.forEach(x=>{const t=art[x.id]||(art[x.id]={menge:0,betrag:0});t.menge+=x.menge;t.betrag=r2(t.betrag+x.menge*x.preis);kat[x.kategorie]=r2((kat[x.kategorie]||0)+x.menge*x.preis)})});
+  return {art,kat,pers,verzehr:r2(verzehr),bar:r2(bar),an:r2(an),alt:r2(alt)};
 }
 
 /* ---------- Anzeige ---------- */
 function render(){
   document.querySelectorAll(".nav .btn").forEach(b=>b.setAttribute("aria-pressed",b.dataset.view===S.view));
   const pill=$("#abendPill");
-  if(!S.ready){pill.textContent="Kasse wird geladen …";}
-  else if(S.stand){pill.className="pill num";pill.textContent="Abend "+S.stand.datumText+" · Umsatz "+euro(umsatz());}
-  else {pill.className="pill warn";pill.textContent="Kein Abend geöffnet";}
+  if(S.stand){const o=offeneDeckel().reduce((s,n)=>s+deckelSumme(n),0);pill.className="pill num";pill.textContent=`Abend ${S.stand.datumText} · ${offeneDeckel().length} offene Deckel · ${euro(o)}`}
+  else{pill.className="pill num";pill.textContent="Neuer Abend beginnt mit der ersten Buchung"}
   const v=$("#view");
-  if(!S.ready){v.innerHTML='<p class="leer">Kasse wird geladen …</p>';return}
   if(S.view==="preise") return renderPreise(v);
-  if(!S.stand) return renderStart(v);
   if(S.view==="abrechnung") return renderAbrechnung(v);
+  if(S.view==="konten") return renderKonten(v);
   renderKasse(v);
 }
-function renderStart(v){
-  const heute=new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
-  const letzte=S.abende.slice().sort((a,b)=>a.id<b.id?1:-1)[0];
-  v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Abend öffnen</h2>
-   <p class="hint">${esc(heute)}. Zähle das Wechselgeld in der Kasse und trage es ein.</p>
-   <div class="row"><label class="field"><span class="label">Anfangsbestand Kasse (€)</span>
-   <input id="anfang" inputmode="decimal" placeholder="z. B. 100,00" value="${letzte?String(letzte.ist).replace(".",","):""}"></label></div>
-   <div class="actions"><button class="btn primary" id="startBtn">Abend starten</button></div>
-   ${letzte?`<p class="hint">Letzter Abend: ${esc(letzte.datumText)}, gezählt ${euro(letzte.ist)}.</p>`:""}</section>`;
-  $("#startBtn").onclick=async()=>{
-    const a=parseNum($("#anfang").value); if(a==null){toast("Bitte den Anfangsbestand als Betrag eingeben.");return}
-    const d=new Date(); const id=d.toISOString().slice(0,16).replace(/[-:T]/g,"");
-    await setStand({id,offen:true,anfang:a,start:d.toISOString(),datumText:d.toLocaleDateString("de-DE")});
-    S.view="kasse"; toast("Abend gestartet"); render();
-  };
+function gastChip(n){
+  const ds=deckelSumme(n), k=konto(n);
+  return `<button class="name ${ds>0?"offen":""}" data-name="${esc(n)}" aria-pressed="${S.name===n}">${esc(n)}
+    ${ds>0||k?`<small>${ds>0?euro(ds):""}${ds>0&&k?" · ":""}${k?`<span class="schuld">alt ${euro(k)}</span>`:""}</small>`:""}</button>`;
 }
 function renderKasse(v){
-  const keys=Object.keys(S.bon);
-  const letzte=aktiv().slice(-1)[0];
-  const log=S.buchungen.slice(-6).reverse();
+  const n=S.name, d=n?S.deckel[n]||{}:{}, keys=Object.keys(d), ds=n?deckelSumme(n):0, k=n?konto(n):0;
+  const mitOffen=S.personen.filter(x=>deckelSumme(x)>0), ohne=S.personen.filter(x=>!(deckelSumme(x)>0));
+  const letzte=S.abrechnungen[S.abrechnungen.length-1];
+  let rechts;
+  if(!n){
+    rechts=`<div class="label">Deckel</div><p class="leer">Gast links antippen oder neu anlegen. Dann Getränke und Essen antippen, sie kommen auf seinen Deckel.</p>`;
+  } else if(S.modus==="abrechnen"){
+    const alt=S.altMit&&k>0?k:0, zahlt=r2(ds+alt), geg=parseNum(S.gegeben);
+    rechts=`<div class="label">Abrechnen</div><h3 style="font-size:1.5rem">${esc(n)}</h3>
+      <div class="bonliste">${keys.map(id=>`<div class="zeile"><div class="n">${d[id].menge}× ${esc(BYID[id].n)}</div><div></div><div class="num">${euro(d[id].menge*d[id].preis)}</div></div>`).join("")||'<p class="leer">Heute nichts verzehrt.</p>'}</div>
+      ${k>0?`<label class="toggle"><input type="checkbox" id="altMit" ${S.altMit?"checked":""}> Angeschriebenes ${euro(k)} mit bezahlen</label>`:""}
+      <div class="summe"><span class="label" style="margin:0">Zu zahlen (bar)</span><strong class="num">${euro(zahlt)}</strong></div>
+      <div class="rg"><input id="gegeben" inputmode="decimal" placeholder="Gegeben €" value="${esc(S.gegeben)}" aria-label="Gegebener Betrag"><div class="rgout"><span>Zurück</span><span class="num" id="rueck">${geg==null?"–":geg<zahlt?"fehlt "+euro(zahlt-geg):euro(geg-zahlt)}</span></div></div>
+      <div class="schnell">${[5,10,20,50].map(x=>`<button data-geg="${x}">${x} €</button>`).join("")}</div>
+      <div class="actions"><button class="btn primary" id="bar" ${zahlt>0?"":"disabled"}>Bar bezahlt</button>
+      <button class="btn" id="anschreiben" ${ds>0?"":"disabled"}>${ds>0?`${euro(ds)} anschreiben`:"Anschreiben"}</button>
+      <button class="btn" id="zurueck">Zurück zum Deckel</button></div>`;
+  } else {
+    rechts=`<div class="label">Deckel von</div><h3 style="font-size:1.5rem">${esc(n)}</h3>
+      ${k?`<div class="alt"><span>Angeschrieben (alt)</span><span class="num">${euro(k)}</span></div>`:""}
+      <div class="bonliste">${keys.length?keys.map(id=>`<div class="zeile"><div class="n">${esc(BYID[id].n)}<small class="num">${euro(d[id].preis)}</small></div>
+        <div class="step"><button data-minus="${id}" aria-label="weniger">−</button><span class="num" style="min-width:22px;text-align:center">${d[id].menge}</span><button data-add="${id}" aria-label="mehr">+</button></div>
+        <div class="num" style="font-weight:600">${euro(d[id].menge*d[id].preis)}</div></div>`).join(""):'<p class="leer">Noch nichts auf dem Deckel. Artikel antippen.</p>'}</div>
+      <div class="summe"><span class="label" style="margin:0">Deckel</span><strong class="num">${euro(ds)}</strong></div>
+      <div class="actions"><button class="btn primary" id="abrechnenBtn" ${ds>0||k>0?"":"disabled"}>Abrechnen</button></div>`;
+  }
   v.innerHTML=`<div class="grid">
-   <section class="panel gaeste" aria-label="Gast">
-     <div class="label">Gast</div>
-     <div class="namen">${S.personen.length?S.personen.map(n=>`<button class="name" data-name="${esc(n)}" aria-pressed="${S.name===n}">${esc(n)}</button>`).join(""):'<p class="leer">Noch keine Namen. Unten den ersten Gast anlegen.</p>'}</div>
+   <section class="panel gaeste" aria-label="Gäste">
+     ${mitOffen.length?`<div class="label">Offene Deckel</div><div class="namen">${mitOffen.map(gastChip).join("")}</div><div class="label" style="margin-top:12px">Weitere Gäste</div>`:`<div class="label">Gäste</div>`}
+     <div class="namen">${ohne.length?ohne.map(gastChip).join(""):(mitOffen.length?"":'<p class="leer">Noch keine Namen. Unten den ersten Gast anlegen.</p>')}</div>
      <form class="neu" id="neuForm"><input id="neuName" placeholder="Neuer Name" autocomplete="off" aria-label="Neuer Name"><button class="btn" type="submit">+</button></form>
    </section>
    <section class="panel" aria-label="Artikel">
      <div class="tabs" role="tablist">${KATS.map(k=>`<button class="tab" role="tab" data-kat="${k}" aria-selected="${S.kat===k}">${k}</button>`).join("")}</div>
-     <div class="artikel">${ARTIKEL.filter(a=>a.k===S.kat).map(a=>`<button class="art" data-add="${a.id}">${S.bon[a.id]?`<span class="badge num">${S.bon[a.id]}</span>`:""}<b>${esc(a.n)}</b><span><small>${esc(a.m)}</small><em class="num">${euro(preis(a.id))}</em></span></button>`).join("")}</div>
+     <div class="artikel">${ARTIKEL.filter(a=>a.k===S.kat).map(a=>{const m=n&&S.deckel[n]&&S.deckel[n][a.id]?S.deckel[n][a.id].menge:0;return `<button class="art" data-add="${a.id}">${m?`<span class="badge num">${m}</span>`:""}<b>${esc(a.n)}</b><span><small>${esc(a.m)}</small><em class="num">${euro(preis(a.id))}</em></span></button>`}).join("")}</div>
    </section>
-   <aside class="panel bon" aria-label="Bon">
-     <div class="label">Bon für</div>
-     <h3 style="font-size:1.5rem">${S.name?esc(S.name):'<span style="color:var(--muted)">Gast wählen</span>'}</h3>
-     <div class="bonliste">${keys.length?keys.map(id=>`<div class="zeile"><div class="n">${esc(BYID[id].n)}<small class="num">${euro(preis(id))}</small></div>
-       <div class="step"><button data-minus="${id}" aria-label="weniger">−</button><span class="num" style="min-width:22px;text-align:center">${S.bon[id]}</span><button data-add="${id}" aria-label="mehr">+</button></div>
-       <div class="num" style="font-weight:600">${euro(S.bon[id]*preis(id))}</div></div>`).join(""):'<p class="leer">Artikel antippen, um sie hinzuzufügen.</p>'}</div>
-     <div class="summe"><span class="label" style="margin:0">Summe</span><strong class="num">${euro(bonSumme())}</strong></div>
-     <div class="rg"><input id="gegeben" inputmode="decimal" placeholder="Gegeben €" value="${esc(S.gegeben)}" aria-label="Gegebener Betrag"><div class="rgout"><span>Zurück</span><span class="num" id="rueck">${rueckText()}</span></div></div>
-     <div class="schnell">${[5,10,20,50].map(x=>`<button data-geg="${x}">${x} €</button>`).join("")}</div>
-     <div class="actions">
-       <button class="btn primary" id="bezahlt" ${keys.length&&S.name?"":"disabled"}>Bar bezahlt</button>
-       <button class="btn gold" id="drucken" ${letzte?"":"disabled"}>${letzte?"Bon drucken: "+esc(letzte.name)+" "+euro(letzte.summe):"Bon drucken"}</button>
-       <button class="btn" id="leeren" ${keys.length?"":"disabled"}>Bon leeren</button>
-       <button class="btn ${S.stornoArm?"danger":""}" id="storno" ${letzte?"":"disabled"}>${S.stornoArm&&letzte?`Wirklich stornieren? ${esc(letzte.name)} ${euro(letzte.summe)}`:"Letzte Buchung stornieren"}</button>
-     </div>
-     <div class="label" style="margin-top:14px">Letzte Buchungen</div>
-     <div class="log">${log.length?log.map(b=>`<div class="${b.storniert?"st":""}"><span>${b.zeit.slice(11,16)} ${esc(b.name)}</span><span class="num">${euro(b.summe)}</span></div>`).join(""):'<span>Noch nichts gebucht.</span>'}</div>
+   <aside class="panel bon" aria-label="Deckel">${rechts}
+     <div class="label" style="margin-top:14px">Zuletzt abgerechnet</div>
+     ${letzte?`<div class="log"><div><span>${letzte.zeit.slice(11,16)} ${esc(letzte.name)} <span class="tag ${letzte.art==="bar"?"":"an"}">${letzte.art==="bar"?"bar":"angeschrieben"}</span></span><span class="num">${euro(letzte.art==="bar"?letzte.verzehr+letzte.alt:letzte.verzehr)}</span></div></div>
+     <div class="zwei" style="margin-top:8px"><button class="btn gold" id="drucken">Bon drucken</button><button class="btn ${S.armed==="undo"?"danger":""}" id="undo">${S.armed==="undo"?"Wirklich?":"Rückgängig"}</button></div>`:'<p class="leer">Heute noch niemand abgerechnet.</p>'}
    </aside></div>`;
-  v.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{S.name=b.dataset.name;render()});
+  v.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{S.name=b.dataset.name;S.modus="deckel";S.gegeben="";S.altMit=true;S.armed=null;render()});
   v.querySelectorAll("[data-kat]").forEach(b=>b.onclick=()=>{S.kat=b.dataset.kat;render()});
-  v.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{S.bon[b.dataset.add]=(S.bon[b.dataset.add]||0)+1;S.stornoArm=false;render()});
-  v.querySelectorAll("[data-minus]").forEach(b=>b.onclick=()=>{const id=b.dataset.minus;S.bon[id]--;if(S.bon[id]<=0)delete S.bon[id];render()});
+  v.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{if(S.modus==="abrechnen")S.modus="deckel";addArtikel(b.dataset.add)});
+  v.querySelectorAll("[data-minus]").forEach(b=>b.onclick=()=>minusArtikel(b.dataset.minus));
   v.querySelectorAll("[data-geg]").forEach(b=>b.onclick=()=>{S.gegeben=b.dataset.geg;render()});
-  $("#gegeben").oninput=e=>{S.gegeben=e.target.value;$("#rueck").textContent=rueckText()};
-  $("#neuForm").onsubmit=async e=>{e.preventDefault();const n=$("#neuName").value.trim().replace(/\s+/g," ");if(!n)return;await addPerson(n);S.name=n;render()};
-  $("#drucken").onclick=()=>druckeBon(letzte);
-  $("#leeren").onclick=()=>{S.bon={};S.gegeben="";render()};
-  $("#storno").onclick=async()=>{if(!S.stornoArm){S.stornoArm=true;render();return}S.stornoArm=false;await setStorno(letzte);toast("Storniert");render()};
-  $("#bezahlt").onclick=async()=>{
-    const posten=Object.entries(S.bon).map(([id,m])=>({id,artikel:BYID[id].n,kategorie:BYID[id].k,menge:m,preis:preis(id)}));
-    const d=new Date(); const lokal=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,19);
-    const geg=parseNum(S.gegeben);
-    const b={abend:S.stand.id,zeit:lokal,name:S.name,posten,summe:bonSumme(),storniert:false,gegeben:geg!=null&&geg>=bonSumme()?geg:null};
-    try{await addBuchung(b);toast("Gebucht: "+S.name+" "+euro(b.summe));S.bon={};S.gegeben="";render();if(S.druck.auto)druckeBon(b)}catch(e){err(e)}
-  };
+  $("#neuForm").onsubmit=e=>{e.preventDefault();const x=$("#neuName").value.trim().replace(/\s+/g," ");if(!x)return;addPerson(x);S.name=x;S.modus="deckel";save();render()};
+  const on=(id,f)=>{const el=$(id);if(el)el.onclick=f};
+  on("#abrechnenBtn",()=>{S.modus="abrechnen";S.gegeben="";render()});
+  on("#zurueck",()=>{S.modus="deckel";render()});
+  on("#bar",()=>abrechnen("bar"));
+  on("#anschreiben",()=>abrechnen("anschreiben"));
+  on("#drucken",()=>druckeBon(letzte));
+  on("#undo",()=>{if(S.armed!=="undo"){S.armed="undo";render();return}S.armed=null;rueckgaengig()});
+  const am=$("#altMit"); if(am) am.onchange=e=>{S.altMit=e.target.checked;render()};
+  const g=$("#gegeben"); if(g) g.oninput=e=>{S.gegeben=e.target.value;const k=konto(S.name),z=r2(deckelSumme(S.name)+(S.altMit&&k>0?k:0)),x=parseNum(S.gegeben);$("#rueck").textContent=x==null?"–":x<z?"fehlt "+euro(z-x):euro(x-z)};
 }
-function druckeBon(b){
-  if(!b) return;
-  const z=b.zeit, datum=z.slice(8,10)+"."+z.slice(5,7)+"."+z.slice(0,4), uhr=z.slice(11,16);
-  const el=document.getElementById("bondruck");
-  el.style.setProperty("--bonw",S.druck.breite+"mm");
-  document.getElementById("pagesize").textContent="@page{size:"+S.druck.breite+"mm auto;margin:0}";
-  el.innerHTML=`<div class="kopf"><img src="logo-bon.png" alt=""><b>Schützenverein Oberschopfheim</b>Vereinsheim</div>
-   <div class="meta"><span>${datum} ${uhr}</span><span>${esc(b.name)}</span></div>
-   <div class="pz">${b.posten.map(p=>`<span>${p.menge}×</span><span>${esc(p.artikel)}</span><span>${euro(p.menge*p.preis)}</span>`).join("")}</div>
-   <div class="sum"><span>Summe</span><span>${euro(b.summe)}</span></div>
-   ${b.gegeben!=null?`<div class="gz"><span>Gegeben (bar)</span><span>${euro(b.gegeben)}</span></div><div class="gz"><span>Zurück</span><span>${euro(r2(b.gegeben-b.summe))}</span></div>`:`<div class="gz"><span>Bar bezahlt</span><span>${euro(b.summe)}</span></div>`}
-   <div class="fuss">Vielen Dank und Gut Schuss!</div>`;
-  const img=el.querySelector("img"); const go=()=>setTimeout(()=>window.print(),60);
-  if(img.complete) go(); else {img.onload=go; img.onerror=go;}
-}
-function rueckText(){const g=parseNum(S.gegeben);if(g==null)return"–";const r=r2(g-bonSumme());return r<0?"fehlt "+euro(-r):euro(r)}
-function parseNum(s){if(s==null)return null;s=String(s).trim().replace(/€/g,"").replace(/\s/g,"");if(!s)return null;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");const n=Number(s);return isFinite(n)?r2(n):null}
 
 function renderAbrechnung(v){
-  const {art,pers,kat}=auswertung(); const bar=umsatz(); const soll=r2(S.stand.anfang+bar); const ist=parseNum(S.ist);
-  const diff=ist==null?null:r2(ist-soll);
-  const artRows=KATS.map(k=>{const items=ARTIKEL.filter(a=>art[a.id]&&a.k===k);if(!items.length)return"";
-    return `<tr class="kat"><td>${k}</td><td></td><td class="r num">${euro(kat[k])}</td></tr>`+items.map(a=>`<tr><td>${esc(a.n)}</td><td class="r num">${art[a.id].menge}</td><td class="r num">${euro(art[a.id].betrag)}</td></tr>`).join("")}).join("");
-  const persRows=Object.entries(pers).sort((a,b)=>b[1]-a[1]).map(([n,s])=>`<tr><td>${esc(n)}</td><td class="r num">${euro(s)}</td></tr>`).join("");
+  if(!S.stand){v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Kein Abend offen</h2><p class="hint">Der Abend beginnt automatisch mit der ersten Buchung.</p>
+    ${S.abende.length?`<p class="hint">Letzter Abend: ${esc(S.abende[S.abende.length-1].datumText)}.</p><button class="btn gold" id="excelAlt">Letzten Abend erneut als Excel</button>`:""}</section>`;
+    const x=$("#excelAlt"); if(x) x.onclick=()=>exportExcel(S.abende[S.abende.length-1]); return}
+  const A=auswertung(), offen=offeneDeckel();
+  const artRows=KATS.map(k=>{const items=ARTIKEL.filter(a=>A.art[a.id]&&a.k===k);if(!items.length)return"";
+    return `<tr class="kat"><td>${k}</td><td></td><td class="r num">${euro(A.kat[k])}</td></tr>`+items.map(a=>`<tr><td>${esc(a.n)}</td><td class="r num">${A.art[a.id].menge}</td><td class="r num">${euro(A.art[a.id].betrag)}</td></tr>`).join("")}).join("");
+  const persRows=Object.entries(A.pers).sort((a,b)=>a[0].localeCompare(b[0],"de")).map(([n,p])=>`<tr><td>${esc(n)}</td><td class="r num">${euro(p.verzehr)}</td><td class="r num">${p.bar?euro(p.bar):"–"}</td><td class="r num">${p.an?euro(p.an):"–"}</td></tr>`).join("");
   v.innerHTML=`<section class="wide">
    <h2 style="font-size:2rem">Abendabrechnung ${esc(S.stand.datumText)}</h2>
    <div class="kpis">
-     <div class="kpi"><div class="label">Anfangsbestand</div><div class="v num">${euro(S.stand.anfang)}</div></div>
-     <div class="kpi"><div class="label">Bareinnahmen</div><div class="v num">${euro(bar)}</div><div class="hint">${aktiv().length} Buchungen</div></div>
-     <div class="kpi"><div class="label">Soll in der Kasse</div><div class="v num">${euro(soll)}</div></div>
-     <div class="kpi ${diff==null?"":diff<0?"diff-neg":"diff-ok"}"><div class="label">Differenz</div><div class="v num" id="diffV">${diff==null?"–":(diff>0?"+":"")+euro(diff)}</div></div>
+     <div class="kpi"><div class="label">Verzehr heute</div><div class="v num">${euro(A.verzehr)}</div><div class="hint">${S.abrechnungen.length} Gäste abgerechnet</div></div>
+     <div class="kpi"><div class="label">Bar in der Kasse</div><div class="v num">${euro(A.bar)}</div>${A.alt?`<div class="hint">davon ${euro(A.alt)} alte Schulden</div>`:""}</div>
+     <div class="kpi"><div class="label">Heute angeschrieben</div><div class="v num">${euro(A.an)}</div></div>
+     <div class="kpi ${offen.length?"diff-neg":"diff-ok"}"><div class="label">Offene Deckel</div><div class="v num">${offen.length}</div></div>
    </div>
+   ${offen.length?`<div class="panel" style="margin-bottom:12px"><div class="label">Noch nicht abgerechnet</div><p>${offen.map(n=>`${esc(n)} ${euro(deckelSumme(n))}`).join(" · ")}</p>
+     <p class="hint">Vor dem Abschluss jeden Gast abrechnen. Wer schon gegangen ist, kann gesammelt angeschrieben werden.</p>
+     <button class="btn ${S.armed==="alle"?"danger":""}" id="alleAn">${S.armed==="alle"?"Wirklich alle offenen anschreiben?":"Alle offenen Deckel anschreiben"}</button></div>`:""}
    <div class="panel"><div class="row">
-     <label class="field"><span class="label">Gezählter Kassenbestand (€)</span><input id="ist" inputmode="decimal" placeholder="Geld zählen und eintragen" value="${esc(S.ist)}"></label>
-     ${window.XLSX?`<button class="btn gold" id="excel">${S.exportiert===S.stand.id?"Excel erneut exportieren":"Excel exportieren"}</button>`:''}
-     <button class="btn ${S.abschlussArm?"danger":"primary"}" id="abschluss" ${ist==null?"disabled":""}>${S.abschlussArm?(S.exportiert===S.stand.id?"Wirklich abschließen?":"Noch nicht exportiert! Trotzdem abschließen?"):"Abend abschließen"}</button>
-   </div><p class="hint">Der Export landet im Download-Ordner des Tablets und hat dieselben Blätter wie die Excel-Liste des Vereins. Er ist zugleich die Sicherung des Abends. Nach dem Abschluss beginnt der nächste Abend mit leerer Liste.</p></div>
+     <button class="btn gold" id="excel">${S.exportiert===S.stand.id?"Excel erneut exportieren":"Excel exportieren"}</button>
+     <button class="btn ${S.armed==="ende"?"danger":"primary"}" id="abschluss" ${offen.length?"disabled":""}>${S.armed==="ende"?(S.exportiert===S.stand.id?"Wirklich abschließen?":"Noch nicht exportiert! Trotzdem abschließen?"):"Abend abschließen"}</button>
+   </div><p class="hint">Der Export landet im Download-Ordner und ist zugleich die Sicherung des Abends. Angeschriebene Beträge bleiben nach dem Abschluss erhalten.</p></div>
    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));margin-top:14px">
-     <div class="panel"><div class="label">Je Artikel</div><div class="tblwrap"><table><thead><tr><th>Artikel</th><th class="r">Menge</th><th class="r">Umsatz</th></tr></thead><tbody>${artRows||'<tr><td colspan="3" class="leer">Noch nichts verkauft.</td></tr>'}</tbody></table></div></div>
-     <div class="panel"><div class="label">Je Person</div><div class="tblwrap"><table><thead><tr><th>Name</th><th class="r">Bezahlt</th></tr></thead><tbody>${persRows||'<tr><td colspan="2" class="leer">Noch keine Buchungen.</td></tr>'}</tbody></table></div></div>
+     <div class="panel"><div class="label">Je Artikel</div><div class="tblwrap"><table><thead><tr><th>Artikel</th><th class="r">Menge</th><th class="r">Umsatz</th></tr></thead><tbody>${artRows||'<tr><td colspan="3" class="leer">Noch nichts abgerechnet.</td></tr>'}</tbody></table></div></div>
+     <div class="panel"><div class="label">Je Person</div><div class="tblwrap"><table><thead><tr><th>Name</th><th class="r">Verzehr</th><th class="r">Bar</th><th class="r">Angeschr.</th></tr></thead><tbody>${persRows||'<tr><td colspan="4" class="leer">Noch nichts abgerechnet.</td></tr>'}</tbody></table></div></div>
    </div></section>`;
-  $("#ist").oninput=e=>{S.ist=e.target.value;S.abschlussArm=false;const i=parseNum(S.ist);const d=i==null?null:r2(i-soll);$("#diffV").textContent=d==null?"–":(d>0?"+":"")+euro(d);$("#diffV").parentElement.className="kpi "+(d==null?"":d<0?"diff-neg":"diff-ok");$("#abschluss").disabled=i==null};
-  const ex=$("#excel"); if(ex) ex.onclick=exportExcel;
-  $("#abschluss").onclick=async()=>{
-    if(!S.abschlussArm){S.abschlussArm=true;render();return}
-    const i=parseNum(S.ist); if(i==null) return;
-    await addAbend({id:S.stand.id,datumText:S.stand.datumText,anfang:S.stand.anfang,bar,soll,ist:i,differenz:r2(i-soll),buchungen:aktiv().length,details:aktiv()});
-    S.ist="";S.abschlussArm=false;S.name=null;S.bon={};
-    await setStand(Object.assign({},S.stand,{offen:false,ende:new Date().toISOString()}));
-    toast("Abend abgeschlossen"); S.view="kasse"; render();
+  $("#excel").onclick=()=>exportExcel(null);
+  const al=$("#alleAn"); if(al) al.onclick=()=>{if(S.armed!=="alle"){S.armed="alle";render();return}S.armed=null;const auto=S.druck.auto;S.druck.auto=false;offen.forEach(n=>{S.name=n;abrechnen("anschreiben")});S.druck.auto=auto;S.name=null;save();render()};
+  $("#abschluss").onclick=()=>{
+    if(S.armed!=="ende"){S.armed="ende";render();return}
+    const A=auswertung();
+    S.abende.push({id:S.stand.id,datumText:S.stand.datumText,verzehr:A.verzehr,bar:A.bar,angeschrieben:A.an,altBeglichen:A.alt,abrechnungen:S.abrechnungen});
+    S.abrechnungen=[];S.stand=null;S.deckel={};S.armed=null;S.name=null;save();toast("Abend abgeschlossen");S.view="kasse";render();
   };
+}
+
+function renderKonten(v){
+  const liste=Object.entries(S.konten).filter(([,b])=>b>0).sort((a,b)=>a[0].localeCompare(b[0],"de"));
+  const summe=r2(liste.reduce((s,[,b])=>s+b,0));
+  const log=S.kontoLog.slice(-30).reverse();
+  v.innerHTML=`<section class="wide"><h2 style="font-size:2rem">Angeschrieben</h2>
+   <div class="kpis"><div class="kpi"><div class="label">Offen gesamt</div><div class="v num">${euro(summe)}</div><div class="hint">${liste.length} Personen</div></div></div>
+   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))">
+   <div class="panel"><div class="label">Offene Beträge</div><div class="tblwrap"><table><thead><tr><th>Name</th><th class="r">Offen</th><th></th></tr></thead><tbody>
+     ${liste.map(([n,b])=>`<tr><td>${esc(n)}</td><td class="r num">${euro(b)}</td><td class="r"><button class="btn" data-zahlen="${esc(n)}" style="min-height:38px;padding:6px 12px">Begleichen</button></td></tr>`).join("")||'<tr><td colspan="3" class="leer">Niemand hat etwas offen.</td></tr>'}</tbody></table></div>
+     <p class="hint">„Begleichen“ öffnet den Gast in der Kasse. Dort wird das Angeschriebene bar bezahlt.</p></div>
+   <div class="panel"><div class="label">Letzte Bewegungen</div><div class="tblwrap"><table><thead><tr><th>Datum</th><th>Name</th><th>Art</th><th class="r">Betrag</th></tr></thead><tbody>
+     ${log.map(l=>`<tr><td class="num">${datumDE(l.zeit)}</td><td>${esc(l.name)}</td><td><span class="tag ${l.art==="angeschrieben"?"an":""}">${l.art}</span></td><td class="r num">${euro(l.betrag)}</td></tr>`).join("")||'<tr><td colspan="4" class="leer">Noch keine Einträge.</td></tr>'}</tbody></table></div></div></div></section>`;
+  v.querySelectorAll("[data-zahlen]").forEach(b=>b.onclick=()=>{S.name=b.dataset.zahlen;S.modus="abrechnen";S.altMit=true;S.gegeben="";S.view="kasse";render()});
 }
 
 function renderPreise(v){
   if(!S.pinOk){
-    v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Preise ändern</h2><p class="hint">Nur für den Vorstand. Bitte PIN eingeben.</p>
+    v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Einstellungen</h2><p class="hint">Nur für den Vorstand. Bitte PIN eingeben.</p>
      <form id="pinForm" class="row"><label class="field"><span class="label">PIN</span><input id="pin" inputmode="numeric" type="password" autocomplete="off"></label><button class="btn primary" type="submit">Öffnen</button></form>
      <p class="hint" id="pinErr" hidden>Die PIN stimmt nicht.</p></section>`;
     $("#pinForm").onsubmit=e=>{e.preventDefault();if($("#pin").value===S.pin){S.pinOk=true;render()}else $("#pinErr").hidden=false};
     return;
   }
-  v.innerHTML=`<section><h2 style="font-size:2rem">Preisliste</h2><p class="hint">Neue Preise gelten ab der nächsten Buchung. Bereits gebuchte Beträge bleiben unverändert.</p>
+  v.innerHTML=`<section><h2 style="font-size:2rem">Preisliste</h2><p class="hint">Neue Preise gelten für alles, was ab jetzt auf einen Deckel kommt. Schon gebuchte Getränke behalten ihren Preis.</p>
    ${KATS.map(k=>`<div class="label" style="margin-top:14px">${k}</div><div class="preisgrid">${ARTIKEL.filter(a=>a.k===k).map(a=>`<label><span>${esc(a.n)} <small class="hint">${esc(a.m)}</small></span><input class="num" data-preis="${a.id}" inputmode="decimal" value="${preis(a.id).toFixed(2).replace(".",",")}"></label>`).join("")}</div>`).join("")}
    <div class="panel row" style="margin-top:16px"><label class="field"><span class="label">Neue PIN (leer lassen = unverändert)</span><input id="newPin" inputmode="numeric" autocomplete="off"></label>
    <button class="btn primary" id="savePreise">Preise speichern</button><button class="btn" id="sperren">Sperren</button></div>
    <div class="panel" style="margin-top:16px"><div class="label">Kassenzettel</div>
    <div class="row"><label class="field"><span class="label">Papierbreite</span>
    <span class="nav"><button class="btn" data-breite="58" aria-pressed="${S.druck.breite===58}">58 mm</button><button class="btn" data-breite="80" aria-pressed="${S.druck.breite===80}">80 mm</button></span></label>
-   <label class="field"><span class="label">Nach „Bar bezahlt“</span><span class="nav"><button class="btn" id="autoDruck" aria-pressed="${S.druck.auto}">${S.druck.auto?"Bon automatisch drucken":"Nur auf Knopfdruck drucken"}</button></span></label></div></div>
+   <label class="field"><span class="label">Nach dem Abrechnen</span><span class="nav"><button class="btn" id="autoDruck" aria-pressed="${S.druck.auto}">${S.druck.auto?"Bon automatisch drucken":"Nur auf Knopfdruck drucken"}</button></span></label></div></div>
    <div class="panel" style="margin-top:16px"><div class="label">Datensicherung</div>
-   <p class="hint">Alle Daten liegen nur auf diesem Tablet. Die Sicherung enthält Preise, Namen, den offenen Abend und alle abgeschlossenen Abende.</p>
+   <p class="hint">Alle Daten liegen nur auf diesem Tablet: Preise, Namen, offene Deckel, Angeschriebenes und alle abgeschlossenen Abende.</p>
    <div class="row"><button class="btn" id="backup">Sicherung speichern</button>
    <label class="btn" for="restore" style="display:inline-flex;align-items:center">Sicherung einspielen</label><input type="file" id="restore" accept=".json,application/json" hidden></div></div></section>`;
-  $("#savePreise").onclick=async()=>{
+  $("#savePreise").onclick=()=>{
     let bad=0; v.querySelectorAll("[data-preis]").forEach(i=>{const n=parseNum(i.value);if(n==null||n<0){bad++;return}const id=i.dataset.preis;if(n===BYID[id].p)delete S.preise[id];else S.preise[id]=n});
     if(bad){toast(bad+" Preis(e) ungültig, bitte prüfen.");return}
-    const np=$("#newPin").value.trim(); if(np) S.pin=np;
-    try{await savePreise();toast("Preise gespeichert")}catch(e){err(e)}
+    const np=$("#newPin").value.trim(); if(np) S.pin=np; save(); toast("Gespeichert");
   };
   $("#sperren").onclick=()=>{S.pinOk=false;S.view="kasse";render()};
-  v.querySelectorAll("[data-breite]").forEach(x=>x.onclick=()=>{S.druck.breite=+x.dataset.breite;lsSave();render()});
-  $("#autoDruck").onclick=()=>{S.druck.auto=!S.druck.auto;lsSave();render()};
-  $("#backup").onclick=()=>{const d=new Date().toISOString().slice(0,10);S.dl.save({filename:"Kasse-Sicherung-"+d+".json",data:JSON.stringify({version:1,stand:S.stand,buchungen:S.buchungen,personen:S.personen,preise:S.preise,pin:S.pin,abende:S.abende,exportiert:S.exportiert,druck:S.druck},null,1)});toast("Sicherung in Downloads gespeichert")};
-  $("#restore").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.version!==1||!Array.isArray(d.buchungen))throw 0;
-    Object.assign(S,{stand:d.stand||null,buchungen:d.buchungen,personen:d.personen||[],preise:d.preise||{},pin:d.pin||"0000",abende:d.abende||[],exportiert:d.exportiert||null});lsSave();toast("Sicherung eingespielt");render()}catch(x){toast("Diese Datei ist keine Kassen-Sicherung.")}};
+  v.querySelectorAll("[data-breite]").forEach(x=>x.onclick=()=>{S.druck.breite=+x.dataset.breite;save();render()});
+  $("#autoDruck").onclick=()=>{S.druck.auto=!S.druck.auto;save();render()};
+  $("#backup").onclick=()=>{const o={version:2};KEYS.forEach(k=>o[k]=S[k]);datei("Kasse-Sicherung-"+jetzt().slice(0,10)+".json",JSON.stringify(o,null,1));toast("Sicherung in Downloads gespeichert")};
+  $("#restore").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.version!==2)throw 0;KEYS.forEach(k=>{if(d[k]!=null)S[k]=d[k]});save();toast("Sicherung eingespielt");render()}catch(x){toast("Diese Datei ist keine Kassen-Sicherung.")}};
 }
 
-/* ---------- Excel-Export (gleicher Aufbau wie die Vereins-Excel) ---------- */
-async function exportExcel(){
-  const X=window.XLSX, EUR='#,##0.00 "€"', wb=X.utils.book_new();
-  const rows=[["Datum","Uhrzeit","Name","Kategorie","Artikel","Menge","Einzelpreis","Betrag"]];
-  aktiv().forEach(b=>b.posten.forEach(p=>rows.push([b.zeit.slice(8,10)+"."+b.zeit.slice(5,7)+"."+b.zeit.slice(0,4),b.zeit.slice(11,16),b.name,p.kategorie,p.artikel,p.menge,p.preis,null])));
+/* ---------- Kassenzettel ---------- */
+function druckeBon(a){
+  if(!a) return;
+  const el=document.getElementById("bondruck");
+  el.style.setProperty("--bonw",S.druck.breite+"mm");
+  document.getElementById("pagesize").textContent="@page{size:"+S.druck.breite+"mm auto;margin:0}";
+  const zahlt=r2(a.verzehr+a.alt);
+  el.innerHTML=`<div class="kopf"><img src="logo-bon.png" alt=""><b>Schützenverein Oberschopfheim</b>Vereinsheim</div>
+   <div class="meta"><span>${datumDE(a.zeit)} ${a.zeit.slice(11,16)}</span><span>${esc(a.name)}</span></div>
+   <div class="pz">${a.posten.map(p=>`<span>${p.menge}×</span><span>${esc(p.artikel)}</span><span>${euro(p.menge*p.preis)}</span>`).join("")}</div>
+   ${a.alt?`<div class="gz" style="margin-top:1mm"><span>Angeschriebenes beglichen</span><span>${euro(a.alt)}</span></div>`:""}
+   ${a.art==="bar"?`<div class="sum"><span>Summe bar</span><span>${euro(zahlt)}</span></div>
+     ${a.gegeben!=null?`<div class="gz"><span>Gegeben</span><span>${euro(a.gegeben)}</span></div><div class="gz"><span>Zurück</span><span>${euro(a.gegeben-zahlt)}</span></div>`:""}`
+    :`<div class="sum"><span>Angeschrieben</span><span>${euro(a.verzehr)}</span></div><div class="gz"><span>Offen insgesamt</span><span>${euro(a.kontoNachher)}</span></div>`}
+   <div class="fuss">Vielen Dank und Gut Schuss!</div>`;
+  const img=el.querySelector("img"), go=()=>setTimeout(()=>window.print(),60);
+  if(img.complete) go(); else {img.onload=go;img.onerror=go}
+}
+
+/* ---------- Dateien ---------- */
+function datei(name,data){
+  const blob=new Blob([data],{type:name.endsWith(".json")?"application/json":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);
+}
+function exportExcel(abend){
+  const X=window.XLSX; if(!X){toast("Excel-Baustein fehlt.");return}
+  const list=abend?abend.abrechnungen:S.abrechnungen, datumText=abend?abend.datumText:S.stand.datumText, abendId=abend?abend.id:S.stand.id;
+  const EUR='#,##0.00 "€"', wb=X.utils.book_new();
+  const rows=[["Datum","Uhrzeit","Name","Kategorie","Artikel","Menge","Einzelpreis","Betrag","Zahlart"]];
+  list.forEach(a=>a.posten.forEach(p=>rows.push([datumDE(a.zeit),a.zeit.slice(11,16),a.name,p.kategorie,p.artikel,p.menge,p.preis,null,a.art==="bar"?"bar":"angeschrieben"])));
   const wsB=X.utils.aoa_to_sheet(rows);
   for(let r=2;r<=rows.length;r++){wsB["H"+r]={t:"n",f:`F${r}*G${r}`,z:EUR};wsB["G"+r].z=EUR}
-  wsB["!cols"]=[{wch:11},{wch:8},{wch:20},{wch:13},{wch:28},{wch:7},{wch:11},{wch:11}];
-  const n=Math.max(rows.length,2);
-  const pr=[["Kategorie","Artikel","Menge","Preis"]].concat(ARTIKEL.map(a=>[a.k,a.n,a.m,preis(a.id)]));
-  const wsP=X.utils.aoa_to_sheet(pr); for(let r=2;r<=pr.length;r++)wsP["D"+r].z=EUR; wsP["!cols"]=[{wch:13},{wch:28},{wch:8},{wch:9}];
+  wsB["!cols"]=[{wch:11},{wch:8},{wch:20},{wch:13},{wch:28},{wch:7},{wch:11},{wch:11},{wch:14}];
+  const kb=[["Datum","Uhrzeit","Name","Art","Betrag"]];
+  S.kontoLog.filter(l=>l.abend===abendId).forEach(l=>kb.push([datumDE(l.zeit),l.zeit.slice(11,16),l.name,l.art,l.betrag]));
+  const wsK=X.utils.aoa_to_sheet(kb); for(let r=2;r<=kb.length;r++)wsK["E"+r].z=EUR; wsK["!cols"]=[{wch:11},{wch:8},{wch:20},{wch:14},{wch:11}];
+  const ab=[["Abendabrechnung",datumText],["Verzehr gesamt",null],["davon bar bezahlt",null],["davon angeschrieben",null],["Alte Schulden bar beglichen",null],["Bar in der Kasse",null]];
+  const wsA=X.utils.aoa_to_sheet(ab);
+  wsA.B2={t:"n",f:"SUM(Buchungen!H:H)",z:EUR};
+  wsA.B3={t:"n",f:'SUMIFS(Buchungen!H:H,Buchungen!I:I,"bar")',z:EUR};
+  wsA.B4={t:"n",f:'SUMIFS(Buchungen!H:H,Buchungen!I:I,"angeschrieben")',z:EUR};
+  wsA.B5={t:"n",f:"SUMIFS('Konto-Bewegungen'!E:E,'Konto-Bewegungen'!D:D,\"beglichen\")",z:EUR};
+  wsA.B6={t:"n",f:"B3+B5",z:EUR}; wsA["!cols"]=[{wch:28},{wch:14}];
   const ja=[["Artikel","Kategorie","Menge","Umsatz"]].concat(ARTIKEL.map(a=>[a.n,a.k,null,null]));
-  const wsA=X.utils.aoa_to_sheet(ja);
-  for(let r=2;r<=ja.length;r++){wsA["C"+r]={t:"n",f:`SUMIFS(Buchungen!F:F,Buchungen!E:E,A${r})`};wsA["D"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!E:E,A${r})`,z:EUR}}
-  wsA["!cols"]=[{wch:28},{wch:13},{wch:8},{wch:11}];
-  const namen=[...new Set(aktiv().map(b=>b.name))].sort((a,b)=>a.localeCompare(b,"de"));
-  const jp=[["Name","Bezahlt"]].concat(namen.map(x=>[x,null])); const wsN=X.utils.aoa_to_sheet(jp);
-  for(let r=2;r<=jp.length;r++)wsN["B"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!C:C,A${r})`,z:EUR}; wsN["!cols"]=[{wch:22},{wch:11}];
-  const ist=parseNum(S.ist);
-  const ab=[["Abendabrechnung",S.stand.datumText],["Anfangsbestand",S.stand.anfang],["Bareinnahmen",null],["Soll-Bestand",null],["Gezählter Ist-Bestand",ist==null?"":ist],["Differenz",null]];
-  const wsK=X.utils.aoa_to_sheet(ab);
-  wsK.B2.z=EUR; wsK.B3={t:"n",f:"SUM(Buchungen!H:H)",z:EUR}; wsK.B4={t:"n",f:"B2+B3",z:EUR}; if(ist!=null)wsK.B5.z=EUR; wsK.B6={t:"n",f:'IF(B5="","",B5-B4)',z:EUR};
-  wsK["!cols"]=[{wch:22},{wch:14}];
-  X.utils.book_append_sheet(wb,wsK,"Abrechnung"); X.utils.book_append_sheet(wb,wsB,"Buchungen");
-  X.utils.book_append_sheet(wb,wsA,"Je Artikel"); X.utils.book_append_sheet(wb,wsN,"Je Person"); X.utils.book_append_sheet(wb,wsP,"Preisliste");
-  const buf=X.write(wb,{bookType:"xlsx",type:"array"});
-  try{await S.dl.save({filename:"Kasse Vereinsheim "+S.stand.datumText.replace(/\./g,"-")+".xlsx",data:buf});S.exportiert=S.stand.id;lsSave();toast("Excel in Downloads gespeichert");render()}
-  catch(e){toast(e&&e.code==="declined"?"Speichern abgebrochen":"Export fehlgeschlagen: "+(e&&e.code||e))}
+  const wsJ=X.utils.aoa_to_sheet(ja);
+  for(let r=2;r<=ja.length;r++){wsJ["C"+r]={t:"n",f:`SUMIFS(Buchungen!F:F,Buchungen!E:E,A${r})`};wsJ["D"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!E:E,A${r})`,z:EUR}}
+  wsJ["!cols"]=[{wch:28},{wch:13},{wch:8},{wch:11}];
+  const namen=[...new Set(list.map(a=>a.name))].sort((a,b)=>a.localeCompare(b,"de"));
+  const jp=[["Name","Verzehr","Bar bezahlt","Angeschrieben"]].concat(namen.map(x=>[x,null,null,null])); const wsP=X.utils.aoa_to_sheet(jp);
+  for(let r=2;r<=jp.length;r++){wsP["B"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!C:C,A${r})`,z:EUR};wsP["C"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!C:C,A${r},Buchungen!I:I,"bar")`,z:EUR};wsP["D"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!C:C,A${r},Buchungen!I:I,"angeschrieben")`,z:EUR}}
+  wsP["!cols"]=[{wch:22},{wch:11},{wch:12},{wch:14}];
+  const ok=[["Name","Offen (Stand Export)"]].concat(Object.entries(S.konten).filter(([,b])=>b>0).sort((a,b)=>a[0].localeCompare(b[0],"de")));
+  const wsO=X.utils.aoa_to_sheet(ok); for(let r=2;r<=ok.length;r++)wsO["B"+r].z=EUR; wsO["!cols"]=[{wch:22},{wch:20}];
+  const pr=[["Kategorie","Artikel","Menge","Preis"]].concat(ARTIKEL.map(a=>[a.k,a.n,a.m,preis(a.id)]));
+  const wsR=X.utils.aoa_to_sheet(pr); for(let r=2;r<=pr.length;r++)wsR["D"+r].z=EUR; wsR["!cols"]=[{wch:13},{wch:28},{wch:8},{wch:9}];
+  X.utils.book_append_sheet(wb,wsA,"Abrechnung");X.utils.book_append_sheet(wb,wsB,"Buchungen");X.utils.book_append_sheet(wb,wsK,"Konto-Bewegungen");
+  X.utils.book_append_sheet(wb,wsJ,"Je Artikel");X.utils.book_append_sheet(wb,wsP,"Je Person");X.utils.book_append_sheet(wb,wsO,"Offene Konten");X.utils.book_append_sheet(wb,wsR,"Preisliste");
+  datei("Kasse Vereinsheim "+datumText.replace(/\./g,"-")+".xlsx",X.write(wb,{bookType:"xlsx",type:"array"}));
+  if(!abend){S.exportiert=S.stand.id;save()} toast("Excel in Downloads gespeichert"); render();
 }
 
 let tt; function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2600)}
-document.querySelectorAll(".nav .btn").forEach(b=>b.onclick=()=>{S.view=b.dataset.view;S.stornoArm=false;S.abschlussArm=false;render()});
-render(); init();
+document.querySelectorAll(".nav .btn").forEach(b=>b.onclick=()=>{S.view=b.dataset.view;S.armed=null;render()});
+load(); try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
+render();
 if("serviceWorker" in navigator&&location.protocol!=="file:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}
 </script>
-
 </body>
 </html>
