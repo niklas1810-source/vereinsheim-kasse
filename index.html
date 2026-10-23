@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Vereinsheim-Kasse</title>
+<meta name="theme-color" content="#2c5a37">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kasse">
+<script src="xlsx.full.min.js"></script>
+<style>
+@font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:500;font-display:swap;src:url(barlow-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:600;font-display:swap;src:url(barlow-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:600;font-display:swap;src:url(barlow-condensed-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(barlow-condensed-latin-700-normal.woff2) format("woff2")}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+[hidden]{display:none!important}
+/* Layout: Theken-Kasse — links Gast wählen, Mitte Artikeltasten nach Kategorie, rechts der Bon. Am Handy untereinander. */
+:root{
+  --bg:#f3f4ef; --surface:#ffffff; --line:#d9ddd2; --fg:#1d2a20; --muted:#5f6b60;
+  --green:#2c5a37; --green-fg:#ffffff; --green-soft:#e3ece2; --gold:#e3bf3c; --gold-fg:#2a2306;
+  --warn:#b4471f; --warn-soft:#f8e4da; --ok:#2f7d43;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#151a16; --surface:#1e251f; --line:#334036; --fg:#e8ede5; --muted:#9fab9f;
+  --green:#4f8f5d; --green-fg:#0d140e; --green-soft:#24362a; --gold:#e8c84f; --gold-fg:#221c04;
+  --warn:#ee8a63; --warn-soft:#3b2219; --ok:#6cc583; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#151a16; --surface:#1e251f; --line:#334036; --fg:#e8ede5; --muted:#9fab9f;
+  --green:#4f8f5d; --green-fg:#0d140e; --green-soft:#24362a; --gold:#e8c84f; --gold-fg:#221c04;
+  --warn:#ee8a63; --warn-soft:#3b2219; --ok:#6cc583; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:12px 20px;-webkit-tap-highlight-color:transparent}
+*{box-sizing:border-box}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;touch-action:manipulation}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:.01em}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:12px}
+.brand{display:flex;align-items:center;gap:12px;flex:1 1 260px;min-width:0}
+.brand .logo{height:58px;width:auto;flex:none}
+.brand>div{display:flex;flex-direction:column;min-width:0}
+.brand h1{font-size:1.7rem;text-transform:uppercase;color:var(--green);line-height:1}
+.brand small{color:var(--muted);font-size:.85rem}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--green-soft);font-weight:600;font-size:.9rem}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 16px;font-weight:600;min-height:46px}
+.btn.primary{background:var(--green);color:var(--green-fg);border-color:var(--green)}
+.btn.gold{background:var(--gold);color:var(--gold-fg);border-color:var(--gold)}
+.btn.danger{background:var(--warn);color:#fff;border-color:var(--warn)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.nav{display:flex;gap:8px;flex-wrap:wrap}
+.nav .btn[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.grid{display:grid;grid-template-columns:minmax(180px,220px) minmax(0,1fr) minmax(260px,320px);gap:14px;align-items:start}
+@media (max-width:980px){.grid{grid-template-columns:minmax(0,1fr) minmax(250px,300px)}.gaeste{grid-column:1/-1}}
+@media (max-width:640px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;min-width:0}
+.label{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;margin-bottom:8px}
+.namen{display:flex;flex-wrap:wrap;gap:6px;max-height:52vh;overflow:auto}
+@media (max-width:980px){.namen{max-height:none}}
+.name{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:8px 14px;font-weight:500;min-height:42px}
+.name[aria-pressed="true"]{background:var(--green);color:var(--green-fg);border-color:var(--green)}
+.neu{display:flex;gap:6px;margin-top:10px}
+.neu input{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg)}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:10px}
+.tab{flex:0 0 auto;border:0;background:transparent;border-bottom:3px solid transparent;padding:8px 10px;font-family:var(--display);font-size:1.15rem;font-weight:700;text-transform:uppercase;color:var(--muted)}
+.tab[aria-selected="true"]{color:var(--green);border-color:var(--gold)}
+.artikel{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.art{position:relative;text-align:left;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;min-height:84px;display:flex;flex-direction:column;justify-content:space-between;gap:6px}
+.art:active{transform:scale(.97)}
+.art b{font-weight:600;line-height:1.2}
+.art span{display:flex;justify-content:space-between;color:var(--muted);font-size:.85rem}
+.art span em{font-style:normal;color:var(--fg);font-weight:600}
+.art .badge{position:absolute;top:-7px;right:-7px;background:var(--gold);color:var(--gold-fg);font-weight:700;border-radius:999px;min-width:26px;height:26px;display:grid;place-items:center;font-size:.85rem}
+.bon{position:sticky;top:12px}
+.bonliste{display:flex;flex-direction:column;gap:6px;margin:8px 0;max-height:34vh;overflow:auto}
+.zeile{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.zeile .n{min-width:0;overflow-wrap:anywhere}
+.zeile .n small{display:block;color:var(--muted)}
+.step{display:flex;align-items:center;gap:4px}
+.step button{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-weight:700;font-size:1.1rem}
+.summe{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid var(--fg);padding-top:10px;margin-top:6px}
+.summe strong{font-family:var(--display);font-size:2.6rem;line-height:1}
+.rg{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:10px 0}
+.rg input{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);font-size:1.1rem}
+.rgout{display:flex;justify-content:space-between;align-items:center;background:var(--green-soft);border-radius:10px;padding:10px;font-weight:600}
+.schnell{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.schnell button{flex:1 1 0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 4px;font-weight:600}
+.actions{display:grid;gap:8px;margin-top:10px}
+.actions .btn.primary{font-size:1.25rem;min-height:60px}
+.leer{color:var(--muted);font-size:.95rem;padding:10px 0}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:12px 18px;border-radius:12px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
+.log{display:flex;flex-direction:column;gap:4px;margin-top:8px;font-size:.9rem;max-height:20vh;overflow:auto}
+.log div{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
+.log div.st{text-decoration:line-through}
+.wide{max-width:900px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi .v{font-family:var(--display);font-size:2rem;font-weight:700}
+.kpi.diff-neg .v{color:var(--warn)} .kpi.diff-ok .v{color:var(--ok)}
+.tblwrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+th{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+td.r,th.r{text-align:right}
+tr.kat td{font-weight:700;background:var(--green-soft)}
+.field{display:flex;flex-direction:column;gap:4px;flex:1 1 180px}
+.field input{border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);font-size:1.1rem}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+.start{max-width:460px;margin:8vh auto 0}
+.preisgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px}
+.preisgrid label{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}
+.preisgrid input{width:84px;border:1px solid var(--line);border-radius:8px;padding:6px;text-align:right;background:var(--surface)}
+.hint{color:var(--muted);font-size:.9rem}
+#bondruck{display:none}
+@media print{
+  :root{padding:0!important} body{background:#fff!important;padding:0!important;margin:0}
+  #app,.toast{display:none!important}
+  #bondruck{display:block;width:var(--bonw,80mm);padding:2mm 3mm 6mm;color:#000;font-family:var(--body);font-size:12px;line-height:1.35}
+  #bondruck .kopf{text-align:center;margin-bottom:2mm}
+  #bondruck .kopf img{width:22mm;height:auto}
+  #bondruck .kopf b{display:block;font-family:var(--display);font-size:15px;text-transform:uppercase;letter-spacing:.02em}
+  #bondruck .meta{display:flex;justify-content:space-between;border-bottom:1px dashed #000;padding-bottom:1.5mm;margin-bottom:1.5mm}
+  #bondruck .pz{display:grid;grid-template-columns:auto 1fr auto;gap:0 2mm}
+  #bondruck .pz span:last-child{text-align:right}
+  #bondruck .sum{display:flex;justify-content:space-between;border-top:2px solid #000;margin-top:1.5mm;padding-top:1mm;font-size:16px;font-weight:700}
+  #bondruck .gz{display:flex;justify-content:space-between}
+  #bondruck .fuss{text-align:center;margin-top:3mm;border-top:1px dashed #000;padding-top:2mm}
+}
+@media (prefers-reduced-motion:reduce){.art:active{transform:none}}
+</style>
+
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand"><img class="logo" src="logo.png" alt="Wappen Schützenverein Oberschopfheim"><div><h1>Schützenverein Oberschopfheim</h1><small>Vereinsheim-Kasse · Barzahlung</small></div></div>
+    <span class="pill num" id="abendPill">Kasse wird geladen …</span>
+    <nav class="nav" aria-label="Bereiche">
+      <button class="btn" data-view="kasse" aria-pressed="true">Kasse</button>
+      <button class="btn" data-view="abrechnung" aria-pressed="false">Abendabrechnung</button>
+      <button class="btn" data-view="preise" aria-pressed="false">Preise</button>
+    </nav>
+  </header>
+  <div id="modeHint" hidden class="pill warn" style="margin-bottom:12px"></div>
+  <main id="view"></main>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+<div id="bondruck" aria-hidden="true"></div>
+<style id="pagesize">@page{size:80mm auto;margin:0}</style>
+
+<script>
+const ARTIKEL = [
+ ["cola","Alkoholfrei","Cola","0,2 l",1.20],["fanta","Alkoholfrei","Fanta","0,2 l",1.20],["saft","Alkoholfrei","Saft","0,2 l",1.20],["wasser02","Alkoholfrei","Wasser","0,2 l",1.20],
+ ["spezi","Alkoholfrei","Spezi","0,5 l",2.00],["topfit","Alkoholfrei","TopFit","0,5 l",2.00],["apfelschorle","Alkoholfrei","Apfelschorle","0,5 l",2.00],["johschorle","Alkoholfrei","Johannisbeerschorle","0,5 l",2.00],
+ ["mwclassic","Alkoholfrei","Mineralwasser classic","0,5 l",2.00],["mwmedium","Alkoholfrei","Mineralwasser medium","0,5 l",2.00],["kaffee","Alkoholfrei","Kaffee","Tasse",1.50],["tee","Alkoholfrei","Tee","Tasse",1.50],
+ ["pils","Bier","Pils","0,33 l",2.50],["radler","Bier","Radler","0,33 l",2.50],["weizen","Bier","Weizen","0,5 l",3.00],["colaweizen","Bier","Cola-Weizen","0,5 l",3.00],
+ ["wschorleweiss","Wein & Sekt","Weinschorle weiß","0,25 l",2.30],["wschorlerot","Wein & Sekt","Weinschorle rot","0,25 l",2.80],["weisswein","Wein & Sekt","Weißwein (Müller-Thurgau)","0,25 l",2.80],["rotwein","Wein & Sekt","Rotwein (Spätburgunder)","0,25 l",3.00],
+ ["sektglas","Wein & Sekt","Sekt Glas","0,1 l",2.00],["sektflasche","Wein & Sekt","Sekt Flasche","0,7 l",9.00],["aperol","Wein & Sekt","Aperol Spritz","Glas",3.50],
+ ["cognack","Spirituosen","Cognac klein","klein",2.50],["cognacg","Spirituosen","Cognac groß","groß",3.00],["rumk","Spirituosen","Rum klein","klein",2.50],["rumg","Spirituosen","Rum groß","groß",3.00],
+ ["whiskeyk","Spirituosen","Whiskey klein","klein",2.50],["whiskeyg","Spirituosen","Whiskey groß","groß",3.00],["ramazzotti","Spirituosen","Ramazzotti","4 cl",2.50],["schnaps","Spirituosen","Schnaps","2 cl",2.00],["likoer","Spirituosen","Likör","2 cl",2.00],
+ ["salzstaengele","Speisen","Salzstängele","",1.00],["salzbrezeln","Speisen","Salzbrezeln","",1.00],["chips","Speisen","Chips","",1.20],["erdnuesse","Speisen","Erdnüsse","",1.20],["knabber","Speisen","Sonstiges Knabberzeug","",1.20],
+ ["wuerste","Speisen","1 Paar Würste mit Brot","",4.50],["bagsalami","Speisen","Baguette Salami","",4.50],["bagschinken","Speisen","Baguette Schinken","",4.50],["wurstweckle","Speisen","Wurstweckle","",2.50],["kaeseweckle","Speisen","Käseweckle","",2.50]
+].map(([id,k,n,m,p])=>({id,k,n,m,p}));
+const KATS=["Alkoholfrei","Bier","Wein & Sekt","Spirituosen","Speisen"];
+const BYID=Object.fromEntries(ARTIKEL.map(a=>[a.id,a]));
+const euro=v=>(Math.round(v*100)/100).toLocaleString("de-DE",{style:"currency",currency:"EUR"});
+const r2=v=>Math.round(v*100)/100;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const $=s=>document.querySelector(s);
+
+const S={druck:{breite:80,auto:false},view:"kasse",kat:"Alkoholfrei",name:null,bon:{},gegeben:"",preise:{},pin:"0000",pinOk:false,
+  stand:null,buchungen:[],personen:[],abende:[],stornoArm:false,abschlussArm:false,ist:"",db:null,dl:null,ready:false};
+const preis=id=>(S.preise[id]!=null?S.preise[id]:BYID[id].p);
+
+/* ---------- Speicher: Artefakt-Datenbank, sonst lokal im Browser ---------- */
+const LS="sv-kasse-v1";
+function lsLoad(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return {}}}
+function lsSave(){try{localStorage.setItem(LS,JSON.stringify({stand:S.stand,buchungen:S.buchungen,personen:S.personen,preise:S.preise,pin:S.pin,abende:S.abende,exportiert:S.exportiert,druck:S.druck}))}catch(e){toast("Speichern auf dem Tablet fehlgeschlagen!")}}
+let unsubB=null;
+async function init(){
+  S.dl={save:async({filename,data})=>{
+    const blob=new Blob([data],{type:filename.endsWith(".json")?"application/json":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},4000);}};
+  const l=lsLoad(); Object.assign(S,{stand:l.stand||null,buchungen:l.buchungen||[],personen:l.personen||[],preise:l.preise||{},pin:l.pin||"0000",abende:l.abende||[],exportiert:l.exportiert||null,druck:l.druck||{breite:80,auto:false}});
+  try{if(navigator.storage&&navigator.storage.persist) await navigator.storage.persist()}catch(e){}
+  S.ready=true; render();
+}
+let subAbend=null;
+function subBuchungen(){
+  const id=S.stand?S.stand.id:null; if(id===subAbend) return; subAbend=id;
+  if(unsubB){unsubB();unsubB=null} S.buchungen=[];
+  if(!id) return;
+  unsubB=S.db.collection("buchungen").where("abend","==",id).onSnapshot(q=>{
+    S.buchungen=q.docs.map(d=>Object.assign({_id:d.id},d.data())).sort((a,b)=>a.zeit<b.zeit?-1:1); render()},err);
+}
+function err(e){toast("Speichern/Laden fehlgeschlagen: "+(e&&e.message||e&&e.code||"unbekannter Fehler"))}
+
+async function addBuchung(b){
+  if(S.db){const ref=await S.db.collection("buchungen").add(b); return ref}
+  b._id="l"+Date.now(); S.buchungen.push(b); lsSave(); render();
+}
+async function setStorno(b){
+  if(S.db){await S.db.collection("buchungen").doc(b._id).update({storniert:true}); return}
+  b.storniert=true; lsSave(); render();
+}
+async function addPerson(n){
+  if(S.personen.includes(n)) return;
+  if(S.db){await S.db.collection("personen").doc(n.toLowerCase().replace(/[^a-z0-9äöüß]+/g,"-").slice(0,60)||("p"+Date.now())).set({name:n}); return}
+  S.personen.push(n); S.personen.sort((a,b)=>a.localeCompare(b,"de")); lsSave();
+}
+async function setStand(st){
+  if(S.db){await S.db.doc("kasse/stand").set(st); return}
+  S.stand=st.offen?st:null; if(!st.offen) S.buchungen=[]; lsSave(); render();
+}
+async function savePreise(){
+  if(S.db){await S.db.doc("kasse/preise").set({preise:S.preise,pin:S.pin}); return}
+  lsSave();
+}
+async function addAbend(a){
+  if(S.db){await S.db.collection("abende").doc(a.id).set(a); return}
+  S.abende.push(a); lsSave();
+}
+
+/* ---------- Rechnen ---------- */
+const aktiv=()=>S.buchungen.filter(b=>!b.storniert);
+const bonSumme=()=>r2(Object.entries(S.bon).reduce((s,[id,m])=>s+m*preis(id),0));
+const umsatz=()=>r2(aktiv().reduce((s,b)=>s+b.summe,0));
+function auswertung(){
+  const art={},pers={},kat={};
+  aktiv().forEach(b=>{pers[b.name]=r2((pers[b.name]||0)+b.summe);
+    b.posten.forEach(p=>{const a=art[p.id]||(art[p.id]={n:p.artikel,k:p.kategorie,menge:0,betrag:0});a.menge+=p.menge;a.betrag=r2(a.betrag+p.menge*p.preis);kat[p.kategorie]=r2((kat[p.kategorie]||0)+p.menge*p.preis)})});
+  return {art,pers,kat};
+}
+
+/* ---------- Anzeige ---------- */
+function render(){
+  document.querySelectorAll(".nav .btn").forEach(b=>b.setAttribute("aria-pressed",b.dataset.view===S.view));
+  const pill=$("#abendPill");
+  if(!S.ready){pill.textContent="Kasse wird geladen …";}
+  else if(S.stand){pill.className="pill num";pill.textContent="Abend "+S.stand.datumText+" · Umsatz "+euro(umsatz());}
+  else {pill.className="pill warn";pill.textContent="Kein Abend geöffnet";}
+  const v=$("#view");
+  if(!S.ready){v.innerHTML='<p class="leer">Kasse wird geladen …</p>';return}
+  if(S.view==="preise") return renderPreise(v);
+  if(!S.stand) return renderStart(v);
+  if(S.view==="abrechnung") return renderAbrechnung(v);
+  renderKasse(v);
+}
+function renderStart(v){
+  const heute=new Date().toLocaleDateString("de-DE",{weekday:"long",day:"2-digit",month:"2-digit",year:"numeric"});
+  const letzte=S.abende.slice().sort((a,b)=>a.id<b.id?1:-1)[0];
+  v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Abend öffnen</h2>
+   <p class="hint">${esc(heute)}. Zähle das Wechselgeld in der Kasse und trage es ein.</p>
+   <div class="row"><label class="field"><span class="label">Anfangsbestand Kasse (€)</span>
+   <input id="anfang" inputmode="decimal" placeholder="z. B. 100,00" value="${letzte?String(letzte.ist).replace(".",","):""}"></label></div>
+   <div class="actions"><button class="btn primary" id="startBtn">Abend starten</button></div>
+   ${letzte?`<p class="hint">Letzter Abend: ${esc(letzte.datumText)}, gezählt ${euro(letzte.ist)}.</p>`:""}</section>`;
+  $("#startBtn").onclick=async()=>{
+    const a=parseNum($("#anfang").value); if(a==null){toast("Bitte den Anfangsbestand als Betrag eingeben.");return}
+    const d=new Date(); const id=d.toISOString().slice(0,16).replace(/[-:T]/g,"");
+    await setStand({id,offen:true,anfang:a,start:d.toISOString(),datumText:d.toLocaleDateString("de-DE")});
+    S.view="kasse"; toast("Abend gestartet"); render();
+  };
+}
+function renderKasse(v){
+  const keys=Object.keys(S.bon);
+  const letzte=aktiv().slice(-1)[0];
+  const log=S.buchungen.slice(-6).reverse();
+  v.innerHTML=`<div class="grid">
+   <section class="panel gaeste" aria-label="Gast">
+     <div class="label">Gast</div>
+     <div class="namen">${S.personen.length?S.personen.map(n=>`<button class="name" data-name="${esc(n)}" aria-pressed="${S.name===n}">${esc(n)}</button>`).join(""):'<p class="leer">Noch keine Namen. Unten den ersten Gast anlegen.</p>'}</div>
+     <form class="neu" id="neuForm"><input id="neuName" placeholder="Neuer Name" autocomplete="off" aria-label="Neuer Name"><button class="btn" type="submit">+</button></form>
+   </section>
+   <section class="panel" aria-label="Artikel">
+     <div class="tabs" role="tablist">${KATS.map(k=>`<button class="tab" role="tab" data-kat="${k}" aria-selected="${S.kat===k}">${k}</button>`).join("")}</div>
+     <div class="artikel">${ARTIKEL.filter(a=>a.k===S.kat).map(a=>`<button class="art" data-add="${a.id}">${S.bon[a.id]?`<span class="badge num">${S.bon[a.id]}</span>`:""}<b>${esc(a.n)}</b><span><small>${esc(a.m)}</small><em class="num">${euro(preis(a.id))}</em></span></button>`).join("")}</div>
+   </section>
+   <aside class="panel bon" aria-label="Bon">
+     <div class="label">Bon für</div>
+     <h3 style="font-size:1.5rem">${S.name?esc(S.name):'<span style="color:var(--muted)">Gast wählen</span>'}</h3>
+     <div class="bonliste">${keys.length?keys.map(id=>`<div class="zeile"><div class="n">${esc(BYID[id].n)}<small class="num">${euro(preis(id))}</small></div>
+       <div class="step"><button data-minus="${id}" aria-label="weniger">−</button><span class="num" style="min-width:22px;text-align:center">${S.bon[id]}</span><button data-add="${id}" aria-label="mehr">+</button></div>
+       <div class="num" style="font-weight:600">${euro(S.bon[id]*preis(id))}</div></div>`).join(""):'<p class="leer">Artikel antippen, um sie hinzuzufügen.</p>'}</div>
+     <div class="summe"><span class="label" style="margin:0">Summe</span><strong class="num">${euro(bonSumme())}</strong></div>
+     <div class="rg"><input id="gegeben" inputmode="decimal" placeholder="Gegeben €" value="${esc(S.gegeben)}" aria-label="Gegebener Betrag"><div class="rgout"><span>Zurück</span><span class="num" id="rueck">${rueckText()}</span></div></div>
+     <div class="schnell">${[5,10,20,50].map(x=>`<button data-geg="${x}">${x} €</button>`).join("")}</div>
+     <div class="actions">
+       <button class="btn primary" id="bezahlt" ${keys.length&&S.name?"":"disabled"}>Bar bezahlt</button>
+       <button class="btn gold" id="drucken" ${letzte?"":"disabled"}>${letzte?"Bon drucken: "+esc(letzte.name)+" "+euro(letzte.summe):"Bon drucken"}</button>
+       <button class="btn" id="leeren" ${keys.length?"":"disabled"}>Bon leeren</button>
+       <button class="btn ${S.stornoArm?"danger":""}" id="storno" ${letzte?"":"disabled"}>${S.stornoArm&&letzte?`Wirklich stornieren? ${esc(letzte.name)} ${euro(letzte.summe)}`:"Letzte Buchung stornieren"}</button>
+     </div>
+     <div class="label" style="margin-top:14px">Letzte Buchungen</div>
+     <div class="log">${log.length?log.map(b=>`<div class="${b.storniert?"st":""}"><span>${b.zeit.slice(11,16)} ${esc(b.name)}</span><span class="num">${euro(b.summe)}</span></div>`).join(""):'<span>Noch nichts gebucht.</span>'}</div>
+   </aside></div>`;
+  v.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{S.name=b.dataset.name;render()});
+  v.querySelectorAll("[data-kat]").forEach(b=>b.onclick=()=>{S.kat=b.dataset.kat;render()});
+  v.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{S.bon[b.dataset.add]=(S.bon[b.dataset.add]||0)+1;S.stornoArm=false;render()});
+  v.querySelectorAll("[data-minus]").forEach(b=>b.onclick=()=>{const id=b.dataset.minus;S.bon[id]--;if(S.bon[id]<=0)delete S.bon[id];render()});
+  v.querySelectorAll("[data-geg]").forEach(b=>b.onclick=()=>{S.gegeben=b.dataset.geg;render()});
+  $("#gegeben").oninput=e=>{S.gegeben=e.target.value;$("#rueck").textContent=rueckText()};
+  $("#neuForm").onsubmit=async e=>{e.preventDefault();const n=$("#neuName").value.trim().replace(/\s+/g," ");if(!n)return;await addPerson(n);S.name=n;render()};
+  $("#drucken").onclick=()=>druckeBon(letzte);
+  $("#leeren").onclick=()=>{S.bon={};S.gegeben="";render()};
+  $("#storno").onclick=async()=>{if(!S.stornoArm){S.stornoArm=true;render();return}S.stornoArm=false;await setStorno(letzte);toast("Storniert");render()};
+  $("#bezahlt").onclick=async()=>{
+    const posten=Object.entries(S.bon).map(([id,m])=>({id,artikel:BYID[id].n,kategorie:BYID[id].k,menge:m,preis:preis(id)}));
+    const d=new Date(); const lokal=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,19);
+    const geg=parseNum(S.gegeben);
+    const b={abend:S.stand.id,zeit:lokal,name:S.name,posten,summe:bonSumme(),storniert:false,gegeben:geg!=null&&geg>=bonSumme()?geg:null};
+    try{await addBuchung(b);toast("Gebucht: "+S.name+" "+euro(b.summe));S.bon={};S.gegeben="";render();if(S.druck.auto)druckeBon(b)}catch(e){err(e)}
+  };
+}
+function druckeBon(b){
+  if(!b) return;
+  const z=b.zeit, datum=z.slice(8,10)+"."+z.slice(5,7)+"."+z.slice(0,4), uhr=z.slice(11,16);
+  const el=document.getElementById("bondruck");
+  el.style.setProperty("--bonw",S.druck.breite+"mm");
+  document.getElementById("pagesize").textContent="@page{size:"+S.druck.breite+"mm auto;margin:0}";
+  el.innerHTML=`<div class="kopf"><img src="logo-bon.png" alt=""><b>Schützenverein Oberschopfheim</b>Vereinsheim</div>
+   <div class="meta"><span>${datum} ${uhr}</span><span>${esc(b.name)}</span></div>
+   <div class="pz">${b.posten.map(p=>`<span>${p.menge}×</span><span>${esc(p.artikel)}</span><span>${euro(p.menge*p.preis)}</span>`).join("")}</div>
+   <div class="sum"><span>Summe</span><span>${euro(b.summe)}</span></div>
+   ${b.gegeben!=null?`<div class="gz"><span>Gegeben (bar)</span><span>${euro(b.gegeben)}</span></div><div class="gz"><span>Zurück</span><span>${euro(r2(b.gegeben-b.summe))}</span></div>`:`<div class="gz"><span>Bar bezahlt</span><span>${euro(b.summe)}</span></div>`}
+   <div class="fuss">Vielen Dank und Gut Schuss!</div>`;
+  const img=el.querySelector("img"); const go=()=>setTimeout(()=>window.print(),60);
+  if(img.complete) go(); else {img.onload=go; img.onerror=go;}
+}
+function rueckText(){const g=parseNum(S.gegeben);if(g==null)return"–";const r=r2(g-bonSumme());return r<0?"fehlt "+euro(-r):euro(r)}
+function parseNum(s){if(s==null)return null;s=String(s).trim().replace(/€/g,"").replace(/\s/g,"");if(!s)return null;if(s.includes(","))s=s.replace(/\./g,"").replace(",",".");const n=Number(s);return isFinite(n)?r2(n):null}
+
+function renderAbrechnung(v){
+  const {art,pers,kat}=auswertung(); const bar=umsatz(); const soll=r2(S.stand.anfang+bar); const ist=parseNum(S.ist);
+  const diff=ist==null?null:r2(ist-soll);
+  const artRows=KATS.map(k=>{const items=ARTIKEL.filter(a=>art[a.id]&&a.k===k);if(!items.length)return"";
+    return `<tr class="kat"><td>${k}</td><td></td><td class="r num">${euro(kat[k])}</td></tr>`+items.map(a=>`<tr><td>${esc(a.n)}</td><td class="r num">${art[a.id].menge}</td><td class="r num">${euro(art[a.id].betrag)}</td></tr>`).join("")}).join("");
+  const persRows=Object.entries(pers).sort((a,b)=>b[1]-a[1]).map(([n,s])=>`<tr><td>${esc(n)}</td><td class="r num">${euro(s)}</td></tr>`).join("");
+  v.innerHTML=`<section class="wide">
+   <h2 style="font-size:2rem">Abendabrechnung ${esc(S.stand.datumText)}</h2>
+   <div class="kpis">
+     <div class="kpi"><div class="label">Anfangsbestand</div><div class="v num">${euro(S.stand.anfang)}</div></div>
+     <div class="kpi"><div class="label">Bareinnahmen</div><div class="v num">${euro(bar)}</div><div class="hint">${aktiv().length} Buchungen</div></div>
+     <div class="kpi"><div class="label">Soll in der Kasse</div><div class="v num">${euro(soll)}</div></div>
+     <div class="kpi ${diff==null?"":diff<0?"diff-neg":"diff-ok"}"><div class="label">Differenz</div><div class="v num" id="diffV">${diff==null?"–":(diff>0?"+":"")+euro(diff)}</div></div>
+   </div>
+   <div class="panel"><div class="row">
+     <label class="field"><span class="label">Gezählter Kassenbestand (€)</span><input id="ist" inputmode="decimal" placeholder="Geld zählen und eintragen" value="${esc(S.ist)}"></label>
+     ${window.XLSX?`<button class="btn gold" id="excel">${S.exportiert===S.stand.id?"Excel erneut exportieren":"Excel exportieren"}</button>`:''}
+     <button class="btn ${S.abschlussArm?"danger":"primary"}" id="abschluss" ${ist==null?"disabled":""}>${S.abschlussArm?(S.exportiert===S.stand.id?"Wirklich abschließen?":"Noch nicht exportiert! Trotzdem abschließen?"):"Abend abschließen"}</button>
+   </div><p class="hint">Der Export landet im Download-Ordner des Tablets und hat dieselben Blätter wie die Excel-Liste des Vereins. Er ist zugleich die Sicherung des Abends. Nach dem Abschluss beginnt der nächste Abend mit leerer Liste.</p></div>
+   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));margin-top:14px">
+     <div class="panel"><div class="label">Je Artikel</div><div class="tblwrap"><table><thead><tr><th>Artikel</th><th class="r">Menge</th><th class="r">Umsatz</th></tr></thead><tbody>${artRows||'<tr><td colspan="3" class="leer">Noch nichts verkauft.</td></tr>'}</tbody></table></div></div>
+     <div class="panel"><div class="label">Je Person</div><div class="tblwrap"><table><thead><tr><th>Name</th><th class="r">Bezahlt</th></tr></thead><tbody>${persRows||'<tr><td colspan="2" class="leer">Noch keine Buchungen.</td></tr>'}</tbody></table></div></div>
+   </div></section>`;
+  $("#ist").oninput=e=>{S.ist=e.target.value;S.abschlussArm=false;const i=parseNum(S.ist);const d=i==null?null:r2(i-soll);$("#diffV").textContent=d==null?"–":(d>0?"+":"")+euro(d);$("#diffV").parentElement.className="kpi "+(d==null?"":d<0?"diff-neg":"diff-ok");$("#abschluss").disabled=i==null};
+  const ex=$("#excel"); if(ex) ex.onclick=exportExcel;
+  $("#abschluss").onclick=async()=>{
+    if(!S.abschlussArm){S.abschlussArm=true;render();return}
+    const i=parseNum(S.ist); if(i==null) return;
+    await addAbend({id:S.stand.id,datumText:S.stand.datumText,anfang:S.stand.anfang,bar,soll,ist:i,differenz:r2(i-soll),buchungen:aktiv().length,details:aktiv()});
+    S.ist="";S.abschlussArm=false;S.name=null;S.bon={};
+    await setStand(Object.assign({},S.stand,{offen:false,ende:new Date().toISOString()}));
+    toast("Abend abgeschlossen"); S.view="kasse"; render();
+  };
+}
+
+function renderPreise(v){
+  if(!S.pinOk){
+    v.innerHTML=`<section class="panel start"><h2 style="font-size:1.8rem">Preise ändern</h2><p class="hint">Nur für den Vorstand. Bitte PIN eingeben.</p>
+     <form id="pinForm" class="row"><label class="field"><span class="label">PIN</span><input id="pin" inputmode="numeric" type="password" autocomplete="off"></label><button class="btn primary" type="submit">Öffnen</button></form>
+     <p class="hint" id="pinErr" hidden>Die PIN stimmt nicht.</p></section>`;
+    $("#pinForm").onsubmit=e=>{e.preventDefault();if($("#pin").value===S.pin){S.pinOk=true;render()}else $("#pinErr").hidden=false};
+    return;
+  }
+  v.innerHTML=`<section><h2 style="font-size:2rem">Preisliste</h2><p class="hint">Neue Preise gelten ab der nächsten Buchung. Bereits gebuchte Beträge bleiben unverändert.</p>
+   ${KATS.map(k=>`<div class="label" style="margin-top:14px">${k}</div><div class="preisgrid">${ARTIKEL.filter(a=>a.k===k).map(a=>`<label><span>${esc(a.n)} <small class="hint">${esc(a.m)}</small></span><input class="num" data-preis="${a.id}" inputmode="decimal" value="${preis(a.id).toFixed(2).replace(".",",")}"></label>`).join("")}</div>`).join("")}
+   <div class="panel row" style="margin-top:16px"><label class="field"><span class="label">Neue PIN (leer lassen = unverändert)</span><input id="newPin" inputmode="numeric" autocomplete="off"></label>
+   <button class="btn primary" id="savePreise">Preise speichern</button><button class="btn" id="sperren">Sperren</button></div>
+   <div class="panel" style="margin-top:16px"><div class="label">Kassenzettel</div>
+   <div class="row"><label class="field"><span class="label">Papierbreite</span>
+   <span class="nav"><button class="btn" data-breite="58" aria-pressed="${S.druck.breite===58}">58 mm</button><button class="btn" data-breite="80" aria-pressed="${S.druck.breite===80}">80 mm</button></span></label>
+   <label class="field"><span class="label">Nach „Bar bezahlt“</span><span class="nav"><button class="btn" id="autoDruck" aria-pressed="${S.druck.auto}">${S.druck.auto?"Bon automatisch drucken":"Nur auf Knopfdruck drucken"}</button></span></label></div></div>
+   <div class="panel" style="margin-top:16px"><div class="label">Datensicherung</div>
+   <p class="hint">Alle Daten liegen nur auf diesem Tablet. Die Sicherung enthält Preise, Namen, den offenen Abend und alle abgeschlossenen Abende.</p>
+   <div class="row"><button class="btn" id="backup">Sicherung speichern</button>
+   <label class="btn" for="restore" style="display:inline-flex;align-items:center">Sicherung einspielen</label><input type="file" id="restore" accept=".json,application/json" hidden></div></div></section>`;
+  $("#savePreise").onclick=async()=>{
+    let bad=0; v.querySelectorAll("[data-preis]").forEach(i=>{const n=parseNum(i.value);if(n==null||n<0){bad++;return}const id=i.dataset.preis;if(n===BYID[id].p)delete S.preise[id];else S.preise[id]=n});
+    if(bad){toast(bad+" Preis(e) ungültig, bitte prüfen.");return}
+    const np=$("#newPin").value.trim(); if(np) S.pin=np;
+    try{await savePreise();toast("Preise gespeichert")}catch(e){err(e)}
+  };
+  $("#sperren").onclick=()=>{S.pinOk=false;S.view="kasse";render()};
+  v.querySelectorAll("[data-breite]").forEach(x=>x.onclick=()=>{S.druck.breite=+x.dataset.breite;lsSave();render()});
+  $("#autoDruck").onclick=()=>{S.druck.auto=!S.druck.auto;lsSave();render()};
+  $("#backup").onclick=()=>{const d=new Date().toISOString().slice(0,10);S.dl.save({filename:"Kasse-Sicherung-"+d+".json",data:JSON.stringify({version:1,stand:S.stand,buchungen:S.buchungen,personen:S.personen,preise:S.preise,pin:S.pin,abende:S.abende,exportiert:S.exportiert,druck:S.druck},null,1)});toast("Sicherung in Downloads gespeichert")};
+  $("#restore").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.version!==1||!Array.isArray(d.buchungen))throw 0;
+    Object.assign(S,{stand:d.stand||null,buchungen:d.buchungen,personen:d.personen||[],preise:d.preise||{},pin:d.pin||"0000",abende:d.abende||[],exportiert:d.exportiert||null});lsSave();toast("Sicherung eingespielt");render()}catch(x){toast("Diese Datei ist keine Kassen-Sicherung.")}};
+}
+
+/* ---------- Excel-Export (gleicher Aufbau wie die Vereins-Excel) ---------- */
+async function exportExcel(){
+  const X=window.XLSX, EUR='#,##0.00 "€"', wb=X.utils.book_new();
+  const rows=[["Datum","Uhrzeit","Name","Kategorie","Artikel","Menge","Einzelpreis","Betrag"]];
+  aktiv().forEach(b=>b.posten.forEach(p=>rows.push([b.zeit.slice(8,10)+"."+b.zeit.slice(5,7)+"."+b.zeit.slice(0,4),b.zeit.slice(11,16),b.name,p.kategorie,p.artikel,p.menge,p.preis,null])));
+  const wsB=X.utils.aoa_to_sheet(rows);
+  for(let r=2;r<=rows.length;r++){wsB["H"+r]={t:"n",f:`F${r}*G${r}`,z:EUR};wsB["G"+r].z=EUR}
+  wsB["!cols"]=[{wch:11},{wch:8},{wch:20},{wch:13},{wch:28},{wch:7},{wch:11},{wch:11}];
+  const n=Math.max(rows.length,2);
+  const pr=[["Kategorie","Artikel","Menge","Preis"]].concat(ARTIKEL.map(a=>[a.k,a.n,a.m,preis(a.id)]));
+  const wsP=X.utils.aoa_to_sheet(pr); for(let r=2;r<=pr.length;r++)wsP["D"+r].z=EUR; wsP["!cols"]=[{wch:13},{wch:28},{wch:8},{wch:9}];
+  const ja=[["Artikel","Kategorie","Menge","Umsatz"]].concat(ARTIKEL.map(a=>[a.n,a.k,null,null]));
+  const wsA=X.utils.aoa_to_sheet(ja);
+  for(let r=2;r<=ja.length;r++){wsA["C"+r]={t:"n",f:`SUMIFS(Buchungen!F:F,Buchungen!E:E,A${r})`};wsA["D"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!E:E,A${r})`,z:EUR}}
+  wsA["!cols"]=[{wch:28},{wch:13},{wch:8},{wch:11}];
+  const namen=[...new Set(aktiv().map(b=>b.name))].sort((a,b)=>a.localeCompare(b,"de"));
+  const jp=[["Name","Bezahlt"]].concat(namen.map(x=>[x,null])); const wsN=X.utils.aoa_to_sheet(jp);
+  for(let r=2;r<=jp.length;r++)wsN["B"+r]={t:"n",f:`SUMIFS(Buchungen!H:H,Buchungen!C:C,A${r})`,z:EUR}; wsN["!cols"]=[{wch:22},{wch:11}];
+  const ist=parseNum(S.ist);
+  const ab=[["Abendabrechnung",S.stand.datumText],["Anfangsbestand",S.stand.anfang],["Bareinnahmen",null],["Soll-Bestand",null],["Gezählter Ist-Bestand",ist==null?"":ist],["Differenz",null]];
+  const wsK=X.utils.aoa_to_sheet(ab);
+  wsK.B2.z=EUR; wsK.B3={t:"n",f:"SUM(Buchungen!H:H)",z:EUR}; wsK.B4={t:"n",f:"B2+B3",z:EUR}; if(ist!=null)wsK.B5.z=EUR; wsK.B6={t:"n",f:'IF(B5="","",B5-B4)',z:EUR};
+  wsK["!cols"]=[{wch:22},{wch:14}];
+  X.utils.book_append_sheet(wb,wsK,"Abrechnung"); X.utils.book_append_sheet(wb,wsB,"Buchungen");
+  X.utils.book_append_sheet(wb,wsA,"Je Artikel"); X.utils.book_append_sheet(wb,wsN,"Je Person"); X.utils.book_append_sheet(wb,wsP,"Preisliste");
+  const buf=X.write(wb,{bookType:"xlsx",type:"array"});
+  try{await S.dl.save({filename:"Kasse Vereinsheim "+S.stand.datumText.replace(/\./g,"-")+".xlsx",data:buf});S.exportiert=S.stand.id;lsSave();toast("Excel in Downloads gespeichert");render()}
+  catch(e){toast(e&&e.code==="declined"?"Speichern abgebrochen":"Export fehlgeschlagen: "+(e&&e.code||e))}
+}
+
+let tt; function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,2600)}
+document.querySelectorAll(".nav .btn").forEach(b=>b.onclick=()=>{S.view=b.dataset.view;S.stornoArm=false;S.abschlussArm=false;render()});
+render(); init();
+if("serviceWorker" in navigator&&location.protocol!=="file:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}
+</script>
+
+</body>
+</html>
