@@ -12,6 +12,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kasse">
 <script src="xlsx.full.min.js"></script>
+<script src="qrcode.js"></script>
 <style>
 @font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
 @font-face{font-family:"Barlow";font-weight:500;font-display:swap;src:url(barlow-latin-500-normal.woff2) format("woff2")}
@@ -134,6 +135,10 @@ tr.kat td{font-weight:700;background:var(--green-soft)}
 .zwei{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.78rem;font-weight:600;background:var(--green-soft)}
 .tag.an{background:var(--warn-soft);color:var(--warn)}
+.dlg-bg{position:fixed;inset:0;background:rgba(10,20,12,.45);display:grid;place-items:center;z-index:30;padding:max(16px,env(safe-area-inset-left,0px))}
+.dlg{background:var(--surface);color:var(--fg);border-radius:16px;padding:20px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.dlg h3{font-size:1.5rem;margin-bottom:6px}
+.name{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #bondruck{display:none}
 @media print{
   :root{padding:0!important} body{background:#fff!important;padding:0!important;margin:0}
@@ -170,6 +175,7 @@ tr.kat td{font-weight:700;background:var(--green-soft)}
   <main id="view"></main>
 </div>
 <div class="toast" id="toast" hidden role="status"></div>
+<div id="dlg"></div>
 <div id="bondruck" aria-hidden="true"></div>
 <style id="pagesize">@page{size:80mm auto;margin:0}</style>
 
@@ -198,7 +204,7 @@ function datumDE(z){return z.slice(8,10)+"."+z.slice(5,7)+"."+z.slice(0,4)}
 
 /* ---------- Zustand (liegt nur auf diesem Tablet) ---------- */
 const LS="sv-kasse-v2";
-const S={view:"kasse",kat:"Alkoholfrei",name:null,modus:"deckel",gegeben:"",altMit:true,pinOk:false,armed:null,
+const S={dlg:null,view:"kasse",kat:"Alkoholfrei",name:null,modus:"deckel",gegeben:"",altMit:true,pinOk:false,armed:null,
   preise:{},pin:"0000",kassenpw:null,offen:false,druck:{breite:80,auto:false},
   stand:null,deckel:{},abrechnungen:[],personen:[],konten:{},kontoLog:[],abende:[],exportiert:null};
 const KEYS=["kassenpw","preise","pin","druck","stand","deckel","abrechnungen","personen","konten","kontoLog","abende","exportiert"];
@@ -343,9 +349,16 @@ function renderKasse(v){
    <aside class="panel bon" aria-label="Deckel">${rechts}
      <div class="label" style="margin-top:14px">Zuletzt abgerechnet</div>
      ${letzte?`<div class="log"><div><span>${letzte.zeit.slice(11,16)} ${esc(letzte.name)} <span class="tag ${letzte.art==="bar"?"":"an"}">${letzte.art==="bar"?"bar":"angeschrieben"}</span></span><span class="num">${euro(letzte.art==="bar"?letzte.verzehr+letzte.alt:letzte.verzehr)}</span></div></div>
-     <div class="zwei" style="margin-top:8px"><button class="btn gold" id="drucken">Bon drucken</button><button class="btn ${S.armed==="undo"?"danger":""}" id="undo">${S.armed==="undo"?"Wirklich?":"Rückgängig"}</button></div>`:'<p class="leer">Heute noch niemand abgerechnet.</p>'}
+     <div class="zwei" style="margin-top:8px"><button class="btn gold" id="qrBon">Bon als QR-Code</button><button class="btn gold" id="drucken">Bon drucken</button><button class="btn ${S.armed==="undo"?"danger":""}" id="undo" style="grid-column:1/-1">${S.armed==="undo"?"Wirklich rückgängig machen?":"Rückgängig"}</button></div>`:'<p class="leer">Heute noch niemand abgerechnet.</p>'}
    </aside></div>`;
-  v.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{S.name=b.dataset.name;S.modus="deckel";S.gegeben="";S.altMit=true;S.armed=null;render()});
+  v.querySelectorAll("[data-name]").forEach(b=>{let t=null,lang=false;
+    const stop=()=>{clearTimeout(t);t=null};
+    b.addEventListener("pointerdown",()=>{lang=false;t=setTimeout(()=>{lang=true;zeigeLoeschen(b.dataset.name)},650)});
+    ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,stop));
+    b.addEventListener("contextmenu",e=>e.preventDefault());
+    b.addEventListener("click",e=>{if(lang){e.preventDefault();lang=false}},true);
+  });
+  v.querySelectorAll("[data-name]").forEach(b=>b.onclick=()=>{if(S.dlg)return;S.name=b.dataset.name;S.modus="deckel";S.gegeben="";S.altMit=true;S.armed=null;render()});
   v.querySelectorAll("[data-kat]").forEach(b=>b.onclick=()=>{S.kat=b.dataset.kat;render()});
   v.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>{if(S.modus==="abrechnen")S.modus="deckel";addArtikel(b.dataset.add)});
   v.querySelectorAll("[data-minus]").forEach(b=>b.onclick=()=>minusArtikel(b.dataset.minus));
@@ -357,6 +370,7 @@ function renderKasse(v){
   on("#bar",()=>abrechnen("bar"));
   on("#anschreiben",()=>abrechnen("anschreiben"));
   on("#drucken",()=>druckeBon(letzte));
+  on("#qrBon",()=>zeigeQR(letzte));
   on("#undo",()=>{if(S.armed!=="undo"){S.armed="undo";render();return}S.armed=null;rueckgaengig()});
   const am=$("#altMit"); if(am) am.onchange=e=>{S.altMit=e.target.checked;render()};
   const g=$("#gegeben"); if(g) g.oninput=e=>{S.gegeben=e.target.value;const k=konto(S.name),z=r2(deckelSumme(S.name)+(S.altMit&&k>0?k:0)),x=parseNum(S.gegeben);$("#rueck").textContent=x==null?"–":x<z?"fehlt "+euro(z-x):euro(x-z)};
@@ -426,6 +440,10 @@ function renderPreise(v){
    ${KATS.map(k=>`<div class="label" style="margin-top:14px">${k}</div><div class="preisgrid">${ARTIKEL.filter(a=>a.k===k).map(a=>`<label><span>${esc(a.n)} <small class="hint">${esc(a.m)}</small></span><input class="num" data-preis="${a.id}" inputmode="decimal" value="${preis(a.id).toFixed(2).replace(".",",")}"></label>`).join("")}</div>`).join("")}
    <div class="panel row" style="margin-top:16px"><label class="field"><span class="label">Neue PIN (leer lassen = unverändert)</span><input id="newPin" inputmode="numeric" autocomplete="off"></label>
    <button class="btn primary" id="savePreise">Preise speichern</button><button class="btn" id="sperren">Sperren</button></div>
+   <div class="panel" style="margin-top:16px"><div class="label">Gäste verwalten</div>
+   <p class="hint">Gäste mit offenem Deckel oder angeschriebenem Betrag können erst gelöscht werden, wenn alles abgerechnet bzw. beglichen ist. Bereits abgerechnete Abende bleiben unverändert.</p>
+   <div class="tblwrap"><table><tbody>${S.personen.map(n=>{const ds=deckelSumme(n),k=konto(n),grund=ds>0?"offener Deckel "+euro(ds):k>0?"angeschrieben "+euro(k):"";
+     return `<tr><td>${esc(n)}</td><td class="hint">${grund}</td><td class="r"><button class="btn ${S.armed==="del:"+n?"danger":""}" data-del="${esc(n)}" ${grund?"disabled":""} style="min-height:38px;padding:6px 12px">${S.armed==="del:"+n?"Wirklich löschen?":"Löschen"}</button></td></tr>`}).join("")||'<tr><td class="leer">Noch keine Gäste angelegt.</td></tr>'}</tbody></table></div></div>
    <div class="panel" style="margin-top:16px"><div class="label">Kassen-Passwort</div>
    <p class="hint">${S.kassenpw?"Die Kasse ist geschützt. Beim Öffnen wird das Passwort abgefragt.":"Zurzeit ohne Passwort. Jeder, der das Tablet in der Hand hat, kann buchen."}</p>
    <div class="row"><label class="field"><span class="label">Neues Passwort (mind. 4 Zeichen)</span><input id="kpw1" type="password" autocomplete="new-password"></label>
@@ -445,6 +463,9 @@ function renderPreise(v){
     const np=$("#newPin").value.trim(); if(np) S.pin=np; save(); toast("Gespeichert");
   };
   $("#sperren").onclick=()=>{S.pinOk=false;S.view="kasse";render()};
+  v.querySelectorAll("[data-del]").forEach(x=>x.onclick=()=>{const n=x.dataset.del;
+    if(S.armed!=="del:"+n){S.armed="del:"+n;render();return}
+    S.armed=null;S.personen=S.personen.filter(y=>y!==n);if(S.name===n)S.name=null;save();toast(n+" gelöscht");render()});
   $("#kpwSet").onclick=async()=>{const a=$("#kpw1").value,b=$("#kpw2").value;
     if(a.length<4){toast("Bitte mindestens 4 Zeichen.");return} if(a!==b){toast("Die beiden Eingaben sind verschieden.");return}
     S.kassenpw=await hash(a);S.offen=true;try{sessionStorage.setItem("sv-offen","1")}catch(x){}save();toast("Kassen-Passwort gesetzt");render()};
@@ -455,6 +476,37 @@ function renderPreise(v){
   $("#restore").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(d.version!==2)throw 0;KEYS.forEach(k=>{if(d[k]!=null)S[k]=d[k]});save();toast("Sicherung eingespielt");render()}catch(x){toast("Diese Datei ist keine Kassen-Sicherung.")}};
 }
 
+/* ---------- Gast löschen (lang drücken) ---------- */
+function zeigeLoeschen(n){
+  S.dlg=n; const ds=deckelSumme(n),k=konto(n), grund=ds>0?`${esc(n)} hat noch einen offenen Deckel über ${euro(ds)}. Bitte zuerst abrechnen.`:k>0?`${esc(n)} hat noch ${euro(k)} angeschrieben. Bitte zuerst begleichen.`:"";
+  $("#dlg").innerHTML=`<div class="dlg-bg" id="dlgBg"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT">
+    <h3 id="dlgT">${grund?"Löschen nicht möglich":"Gast löschen?"}</h3>
+    <p>${grund||`Wollen Sie <b>${esc(n)}</b> wirklich löschen? Bereits abgerechnete Abende bleiben erhalten.`}</p>
+    <div class="zwei" style="margin-top:14px">${grund?`<button class="btn primary" id="dlgNein" style="grid-column:1/-1">OK</button>`:`<button class="btn" id="dlgNein">Abbrechen</button><button class="btn danger" id="dlgJa">Löschen</button>`}</div></div></div>`;
+  const zu=()=>{$("#dlg").innerHTML="";setTimeout(()=>{S.dlg=null},50)};
+  $("#dlgNein").onclick=zu; $("#dlgBg").onclick=e=>{if(e.target.id==="dlgBg")zu()};
+  const ja=$("#dlgJa"); if(ja) ja.onclick=()=>{S.personen=S.personen.filter(y=>y!==n);if(S.name===n)S.name=null;save();zu();toast(n+" gelöscht");render()};
+  $("#dlgNein").focus();
+}
+/* ---------- Kassenbon als QR-Code ---------- */
+function bonLink(a){
+  const d={v:1,d:a.zeit,n:a.name,p:a.posten.map(x=>[x.menge,x.artikel,x.preis]),a:a.art==="bar"?"b":"a",al:a.alt||0,g:a.gegeben,k:a.kontoNachher};
+  const bytes=new TextEncoder().encode(JSON.stringify(d)); let b="";bytes.forEach(x=>b+=String.fromCharCode(x));
+  return new URL("bon.html",location.href).href.split("#")[0]+"#"+btoa(b).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function zeigeQR(a){
+  if(!a||!window.qrcode){toast("QR-Code nicht verfügbar.");return}
+  const q=qrcode(0,"M"); q.addData(bonLink(a)); q.make();
+  const svg=q.createSvgTag({cellSize:5,margin:3,scalable:true});
+  S.dlg="qr";
+  $("#dlg").innerHTML=`<div class="dlg-bg" id="dlgBg"><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT" style="text-align:center;max-width:440px">
+    <h3 id="dlgT">Kassenbon für ${esc(a.name)}</h3><p class="hint">Mit der Handy-Kamera scannen. Der Bon öffnet sich im Browser und kann gespeichert werden.</p>
+    <div style="background:#fff;border-radius:12px;padding:8px;margin:10px auto;max-width:320px">${svg}</div>
+    <p class="num" style="font-weight:600">${a.art==="bar"?"Bar "+euro(a.verzehr+a.alt):"Angeschrieben "+euro(a.verzehr)}</p>
+    <button class="btn primary" id="dlgNein" style="width:100%;margin-top:6px">Fertig</button></div></div>`;
+  const zu=()=>{$("#dlg").innerHTML="";setTimeout(()=>{S.dlg=null},50)};
+  $("#dlgNein").onclick=zu; $("#dlgBg").onclick=e=>{if(e.target.id==="dlgBg")zu()};
+}
 /* ---------- Kassenzettel ---------- */
 function druckeBon(a){
   if(!a) return;

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kassenbon · Schützenverein Oberschopfheim</title>
+<meta name="theme-color" content="#2c5a37">
+<link rel="icon" href="icon-192.png">
+<style>
+@font-face{font-family:"Barlow";font-weight:400;font-display:swap;src:url(barlow-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow";font-weight:600;font-display:swap;src:url(barlow-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Barlow Condensed";font-weight:700;font-display:swap;src:url(barlow-condensed-latin-700-normal.woff2) format("woff2")}
+:root{--bg:#e9ece4;--paper:#fff;--fg:#1d2a20;--muted:#5f6b60;--green:#2c5a37;--line:#cfd5c8;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#151a16;--paper:#1e251f;--fg:#e8ede5;--muted:#9fab9f;--green:#6fae7e;--line:#334036;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 "Barlow",system-ui,sans-serif;
+  padding:24px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px))}
+.bon{max-width:380px;margin:0 auto;background:var(--paper);border-radius:6px;padding:22px 20px 26px;box-shadow:0 6px 24px rgba(0,0,0,.12);
+  -webkit-mask:radial-gradient(circle 6px at 50% 100%,transparent 98%,#000) 0 0/16px 100% repeat-x}
+.kopf{text-align:center;margin-bottom:14px}
+.kopf img{width:84px;height:auto}
+h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:1.35rem;text-transform:uppercase;color:var(--green);margin:6px 0 0;letter-spacing:.02em}
+.kopf small{color:var(--muted)}
+.meta{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding-bottom:8px;margin-bottom:8px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pz{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;font-variant-numeric:tabular-nums}
+.pz span:last-child,.r{text-align:right}
+.sum{display:flex;justify-content:space-between;border-top:2px solid var(--fg);margin-top:10px;padding-top:8px;font-weight:600;font-size:1.3rem;font-variant-numeric:tabular-nums}
+.gz{display:flex;justify-content:space-between;color:var(--muted);font-variant-numeric:tabular-nums}
+.fuss{text-align:center;margin-top:16px;padding-top:12px;border-top:1px dashed var(--line);color:var(--muted)}
+.fehler{max-width:380px;margin:40px auto;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+<main id="out"><p class="fehler">Kassenbon wird geladen …</p></main>
+<script>
+const euro=v=>(Math.round(v*100)/100).toLocaleString("de-DE",{style:"currency",currency:"EUR"});
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function lesen(h){
+  const b=atob(h.replace(/-/g,"+").replace(/_/g,"/"));
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(b,c=>c.charCodeAt(0))));
+}
+const out=document.getElementById("out");
+try{
+  const d=lesen(location.hash.slice(1)); if(d.v!==1) throw 0;
+  const zahlt=Math.round((d.p.reduce((s,x)=>s+x[0]*x[2],0)+(d.al||0))*100)/100;
+  const verzehr=Math.round(d.p.reduce((s,x)=>s+x[0]*x[2],0)*100)/100;
+  document.title="Kassenbon "+d.d.slice(8,10)+"."+d.d.slice(5,7)+". · Schützenverein Oberschopfheim";
+  out.innerHTML=`<article class="bon">
+   <div class="kopf"><img src="logo.png" alt="Wappen Schützenverein Oberschopfheim"><h1>Schützenverein Oberschopfheim</h1><small>Vereinsheim</small></div>
+   <div class="meta"><span>${d.d.slice(8,10)}.${d.d.slice(5,7)}.${d.d.slice(0,4)} ${d.d.slice(11,16)}</span><span>${esc(d.n)}</span></div>
+   <div class="pz">${d.p.map(x=>`<span>${x[0]}×</span><span>${esc(x[1])}</span><span>${euro(x[0]*x[2])}</span>`).join("")}</div>
+   ${d.al?`<div class="gz" style="margin-top:6px"><span>Angeschriebenes beglichen</span><span>${euro(d.al)}</span></div>`:""}
+   ${d.a==="b"?`<div class="sum"><span>Summe bar</span><span>${euro(zahlt)}</span></div>
+     ${d.g!=null?`<div class="gz"><span>Gegeben</span><span>${euro(d.g)}</span></div><div class="gz"><span>Zurück</span><span>${euro(d.g-zahlt)}</span></div>`:""}`
+    :`<div class="sum"><span>Angeschrieben</span><span>${euro(verzehr)}</span></div><div class="gz"><span>Offen insgesamt</span><span>${euro(d.k)}</span></div>`}
+   <div class="fuss">Vielen Dank und Gut Schuss!</div></article>`;
+}catch(e){out.innerHTML='<p class="fehler">Dieser Kassenbon-Link ist unvollständig. Bitte den QR-Code an der Kasse noch einmal scannen.</p>'}
+</script>
+</body>
+</html>
